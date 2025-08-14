@@ -7,3 +7,7 @@
 # After that what all dependencies you will add in the pyproject.toml file to update ur venv use 
 
 5. uv sync --extra dev
+
+# Run the server
+
+6. uvicorn main:app --reload

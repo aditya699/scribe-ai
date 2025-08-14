@@ -10,7 +10,7 @@ https://pymongo.readthedocs.io/en/4.13.0/async-tutorial.html
 # db/mongo.py
 
 from pymongo import AsyncMongoClient
-from core.config import settings
+from app.core.config import settings
 from datetime import datetime
 import traceback
 
