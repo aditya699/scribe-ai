@@ -9,7 +9,12 @@ dependencies = [
     "uvicorn[standard]",
     "sounddevice",
     "numpy",
-    "pydantic"
+    "pydantic",
+    "pymongo",
+    "azure-storage-blob",
+    "python-dotenv",
+    "pydantic-settings",
+    "openai"
 ]
 
 [project.optional-dependencies]
