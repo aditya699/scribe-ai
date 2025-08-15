@@ -14,7 +14,8 @@ dependencies = [
     "azure-storage-blob",
     "python-dotenv",
     "pydantic-settings",
-    "openai"
+    "openai",
+    "jsonschema"
 ]
 
 [project.optional-dependencies]

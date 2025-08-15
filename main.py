@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.sessions.routes import router as sessions_router
+from app.database.schema_setup import setup_mongodb_schemas
 import uvicorn
 
 app = FastAPI(
@@ -9,15 +10,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database schemas and indexes on startup"""
+    await setup_mongodb_schemas()
+    
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include sessions router
 app.include_router(sessions_router)
 
 @app.get("/")
@@ -29,4 +35,4 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
