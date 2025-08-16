@@ -3,7 +3,7 @@ Author: Aditya Bhatt
 """
 from fastapi import APIRouter, HTTPException, WebSocket, status, Response
 from .schemas import StartTranscriptionRequest, StartTranscriptionResponse, EndTranscriptionRequest, EndTranscriptionResponse, AudioChunkMetadata, TranscriptUpdate, WebSocketError, ConnectionConfirmed
-from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk
+from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete        
 from app.database.mongo import log_error
 
 router = APIRouter(prefix="/v1/transcription", tags=["transcription"])
@@ -142,9 +142,9 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                     await websocket.send_text(json.dumps(error_response))
                     
             elif "bytes" in message:
-                # Binary message (audio data)
+                # Binary message (audio data) - process complete pipeline
                 audio_data = message["bytes"]
-                response = await process_audio_chunk(
+                response = await process_audio_chunk_complete(
                     transcription_session_id, 
                     expected_sequence, 
                     audio_data
@@ -180,3 +180,67 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
             await mark_websocket_disconnected(transcription_session_id)
         except:
             pass  # Don't fail if cleanup fails
+
+
+@router.get("/health", response_model=dict)
+async def transcription_health_check():
+    """
+    Health check for transcription module.
+    Verifies database, blob storage, and OpenAI API connectivity.
+    """
+    try:
+        from app.database.mongo import get_db
+        from app.database.blob import get_blob_client
+        from app.core.llm import get_openai_client
+        
+        health_status = {
+            "status": "healthy",
+            "module": "transcription",
+            "checks": {}
+        }
+        
+        # Check MongoDB connection
+        try:
+            db = await get_db()
+            await db.command('ping')
+            health_status["checks"]["database"] = "connected"
+        except Exception as e:
+            health_status["checks"]["database"] = f"error: {str(e)}"
+            health_status["status"] = "unhealthy"
+        
+        # Check Blob Storage connection
+        try:
+            blob_client = await get_blob_client()
+            # Try to list containers (lightweight check)
+            containers = blob_client.list_containers()
+            async for container in containers:
+                break  # Just test we can iterate
+            health_status["checks"]["blob_storage"] = "connected"
+        except Exception as e:
+            health_status["checks"]["blob_storage"] = f"error: {str(e)}"
+            health_status["status"] = "unhealthy"
+        
+        # Check OpenAI API connection
+        try:
+            openai_client = await get_openai_client()
+            # Simple API test (doesn't count against usage)
+            models = await openai_client.models.list()
+            health_status["checks"]["openai_api"] = "connected"
+        except Exception as e:
+            health_status["checks"]["openai_api"] = f"error: {str(e)}"
+            health_status["status"] = "unhealthy"
+        
+        return health_status
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/routes.py - transcription_health_check",
+            additional_info={}
+        )
+        
+        return {
+            "status": "unhealthy",
+            "module": "transcription", 
+            "error": "Health check failed"
+        }
