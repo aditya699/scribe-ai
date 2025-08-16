@@ -1,6 +1,6 @@
 # core/llm.py
 from openai import AsyncOpenAI
-from core.config import settings
+from .config import settings
 from app.database.mongo import log_error
 
 # Initialize client (note: This will be initialized once and reused)

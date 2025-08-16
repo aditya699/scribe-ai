@@ -15,7 +15,8 @@ dependencies = [
     "python-dotenv",
     "pydantic-settings",
     "openai",
-    "jsonschema"
+    "jsonschema",
+    "aiohttp"
 ]
 
 [project.optional-dependencies]

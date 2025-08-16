@@ -1,7 +1,7 @@
 # db/blob.py
 from azure.storage.blob.aio import BlobServiceClient
-from core.config import settings
 from app.database.mongo import log_error
+from app.core.config import settings
 
 # Global client (initialized once, reused everywhere)
 blob_client: BlobServiceClient | None = None

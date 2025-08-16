@@ -386,7 +386,8 @@ async def process_audio_chunk(transcription_session_id: str, sequence_number: in
         
         # 1. Create audio chunk record
         chunk_id = str(uuid.uuid4())
-        blob_path = f"audio-chunks/{transcription_session_id}/{sequence_number:06d}_{chunk_id}.wav"
+        # Frontend records WebM/Opus; preserve original container/codec for compatibility
+        blob_path = f"audio-chunks/{transcription_session_id}/{sequence_number:06d}_{chunk_id}.webm"
         
         audio_chunk = AudioChunk(
             chunk_id=chunk_id,
@@ -408,7 +409,7 @@ async def process_audio_chunk(transcription_session_id: str, sequence_number: in
         await blob_client_for_chunk.upload_blob(
             data=audio_data,
             overwrite=True,
-            content_type="audio/wav"
+            content_type="audio/webm"
         )
         
         # 3. Store chunk metadata in database
@@ -491,16 +492,16 @@ async def transcribe_audio_chunk(transcription_session_id: str, chunk_id: str) -
         
         # 3. Create file-like object for OpenAI API
         audio_file = io.BytesIO(audio_data)
-        audio_file.name = f"chunk_{chunk_doc['sequence_number']}.wav"
+        # Name with .webm so the API can infer correct container
+        audio_file.name = f"chunk_{chunk_doc['sequence_number']}.webm"
         
         # 4. Call OpenAI Transcription API with medical context
         openai_client = await get_openai_client()
         
         transcription = await openai_client.audio.transcriptions.create(
-            model="gpt-4o-transcribe",  # Higher quality model
+            model="whisper-1",
             file=audio_file,
             language="en",
-            prompt="This is a medical consultation between a doctor and patient. The conversation may include medical terminology, symptoms, medications, and treatment discussions. Please transcribe accurately with proper medical terminology."
         )
         
         return transcription.text.strip()
