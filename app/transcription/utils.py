@@ -133,3 +133,292 @@ async def end_transcription_session(transcription_session_id: str) -> None:
             additional_info={"transcription_session_id": transcription_session_id}
         )
         raise
+
+async def validate_websocket_connection(transcription_session_id: str) -> bool:
+    """
+    Validate that a transcription session can accept WebSocket connection.
+    
+    Args:
+        transcription_session_id: The transcription session to validate
+        
+    Returns:
+        bool: True if connection is allowed, False otherwise
+        
+    Raises:
+        ValueError: If session doesn't exist or is in invalid state
+        Exception: For database errors
+    """
+    try:
+        db = await get_db()
+        transcription_collection = db["transcription_sessions"]
+        
+        # Find the transcription session
+        session = await transcription_collection.find_one(
+            {"transcription_session_id": transcription_session_id},
+            {"_id": 0, "status": 1, "websocket_connected": 1}
+        )
+        
+        if not session:
+            raise ValueError(f"Transcription session {transcription_session_id} not found")
+        
+        # Check if session is in valid state for WebSocket
+        valid_statuses = ["starting", "streaming"]
+        if session["status"] not in valid_statuses:
+            raise ValueError(f"Session status '{session['status']}' cannot accept WebSocket connection")
+        
+        # Check if WebSocket already connected
+        if session.get("websocket_connected", False):
+            raise ValueError(f"WebSocket already connected to session {transcription_session_id}")
+        
+        return True
+        
+    except ValueError:
+        # Re-raise validation errors as-is
+        raise
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/utils.py - validate_websocket_connection",
+            additional_info={"transcription_session_id": transcription_session_id}
+        )
+        raise
+
+async def mark_websocket_connected(transcription_session_id: str) -> None:
+    """
+    Mark a transcription session as having an active WebSocket connection.
+    
+    Args:
+        transcription_session_id: The transcription session that connected
+        
+    Raises:
+        Exception: For database errors
+    """
+    try:
+        from datetime import datetime, timezone
+        
+        db = await get_db()
+        transcription_collection = db["transcription_sessions"]
+        
+        # Update session to mark WebSocket as connected
+        update_result = await transcription_collection.update_one(
+            {"transcription_session_id": transcription_session_id},
+            {
+                "$set": {
+                    "websocket_connected": True,
+                    "websocket_connected_at": datetime.now(timezone.utc),
+                    "status": "streaming"  # Update status to streaming when WebSocket connects
+                }
+            }
+        )
+        
+        if update_result.modified_count == 0:
+            raise Exception(f"Failed to mark WebSocket connected for session {transcription_session_id}")
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/utils.py - mark_websocket_connected",
+            additional_info={"transcription_session_id": transcription_session_id}
+        )
+        raise
+
+async def mark_websocket_disconnected(transcription_session_id: str) -> None:
+    """
+    Mark a transcription session as having lost WebSocket connection.
+    Only resets status to 'starting' if currently streaming.
+    
+    Args:
+        transcription_session_id: The transcription session that disconnected
+        
+    Raises:
+        Exception: For database errors
+    """
+    try:
+        from datetime import datetime, timezone
+        
+        db = await get_db()
+        transcription_collection = db["transcription_sessions"]
+        
+        # First get current status
+        session = await transcription_collection.find_one(
+            {"transcription_session_id": transcription_session_id},
+            {"_id": 0, "status": 1}
+        )
+        
+        if not session:
+            return  # Session doesn't exist, nothing to update
+        
+        # Prepare update - always mark WebSocket as disconnected
+        update_fields = {
+            "websocket_connected": False,
+            "websocket_disconnected_at": datetime.now(timezone.utc)
+        }
+        
+        # Only reset status to 'starting' if currently streaming
+        if session["status"] == "streaming":
+            update_fields["status"] = "starting"
+        
+        # Update session 
+        update_result = await transcription_collection.update_one(
+            {"transcription_session_id": transcription_session_id},
+            {"$set": update_fields}
+        )
+        
+        if update_result.modified_count == 0:
+            raise Exception(f"Failed to mark WebSocket disconnected for session {transcription_session_id}")
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/utils.py - mark_websocket_disconnected",
+            additional_info={"transcription_session_id": transcription_session_id}
+        )
+        raise
+
+async def process_websocket_message(transcription_session_id: str, message: dict) -> dict:
+    """
+    Process incoming WebSocket message from mobile app.
+    
+    Args:
+        transcription_session_id: The transcription session
+        message: WebSocket message received from mobile app
+        
+    Returns:
+        dict: Response to send back to mobile app
+        
+    Raises:
+        ValueError: For invalid message format
+        Exception: For processing errors
+    """
+    try:
+        from .schemas import AudioChunkMetadata, WebSocketError
+        import json
+        
+        # Check message type
+        message_type = message.get("type")
+        
+        if message_type == "audio_chunk_metadata":
+            # Mobile app is telling us about incoming audio chunk
+            metadata = AudioChunkMetadata.model_validate(message)
+            
+            # Store metadata for upcoming binary audio data
+            # TODO: Will implement audio storage logic
+            
+            return {
+                "type": "metadata_received",
+                "message": f"Ready to receive audio chunk {metadata.sequence_number}",
+                "sequence_number": metadata.sequence_number
+            }
+        
+        else:
+            # Unknown message type
+            error = WebSocketError(
+                error_code="UNKNOWN_MESSAGE_TYPE",
+                error_message=f"Unknown message type: {message_type}"
+            )
+            return error.model_dump()
+        
+    except ValueError as e:
+        # Invalid message format
+        error = WebSocketError(
+            error_code="INVALID_MESSAGE_FORMAT",
+            error_message=str(e)
+        )
+        return error.model_dump()
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/utils.py - process_websocket_message",
+            additional_info={
+                "transcription_session_id": transcription_session_id,
+                "message": message
+            }
+        )
+        
+        error = WebSocketError(
+            error_code="PROCESSING_ERROR",
+            error_message="Failed to process message"
+        )
+        return error.model_dump()
+
+async def process_audio_chunk(transcription_session_id: str, sequence_number: int, audio_data: bytes) -> dict:
+    """
+    Process binary audio chunk received via WebSocket.
+    
+    Args:
+        transcription_session_id: The transcription session
+        sequence_number: Which chunk this is (0, 1, 2...)
+        audio_data: Raw audio bytes from mobile app
+        
+    Returns:
+        dict: Response with processing status
+        
+    Raises:
+        Exception: For storage or processing errors
+    """
+    try:
+        from .schemas import AudioChunk, WebSocketError
+        from app.database.blob import get_blob_client
+        import uuid
+        
+        # 1. Create audio chunk record
+        chunk_id = str(uuid.uuid4())
+        blob_path = f"audio-chunks/{transcription_session_id}/{sequence_number:06d}_{chunk_id}.wav"
+        
+        audio_chunk = AudioChunk(
+            chunk_id=chunk_id,
+            transcription_session_id=transcription_session_id,
+            sequence_number=sequence_number,
+            blob_path=blob_path
+        )
+        
+        # 2. Store audio data in blob storage
+        blob_client = await get_blob_client()
+        container_name = "audio-chunks"
+        
+        # Upload audio bytes to blob storage
+        blob_client_for_chunk = blob_client.get_blob_client(
+            container=container_name,
+            blob=blob_path
+        )
+        
+        await blob_client_for_chunk.upload_blob(
+            data=audio_data,
+            overwrite=True,
+            content_type="audio/wav"
+        )
+        
+        # 3. Store chunk metadata in database
+        db = await get_db()
+        chunks_collection = db["audio_chunks"]
+        doc = audio_chunk.model_dump(exclude_none=True)
+        
+        result = await chunks_collection.insert_one(doc)
+        if not result.inserted_id:
+            raise Exception("Failed to store audio chunk metadata")
+        
+        # 4. Return success response
+        return {
+            "type": "audio_chunk_stored",
+            "message": f"Audio chunk {sequence_number} stored successfully",
+            "chunk_id": chunk_id,
+            "sequence_number": sequence_number
+        }
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/utils.py - process_audio_chunk",
+            additional_info={
+                "transcription_session_id": transcription_session_id,
+                "sequence_number": sequence_number,
+                "audio_size_bytes": len(audio_data)
+            }
+        )
+        
+        error = WebSocketError(
+            error_code="AUDIO_STORAGE_ERROR",
+            error_message="Failed to store audio chunk"
+        )
+        return error.model_dump()

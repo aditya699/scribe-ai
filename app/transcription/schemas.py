@@ -32,6 +32,11 @@ class TranscriptionSession(BaseModel):
     started_at: datetime = Field(default_factory=utc_now)
     ended_at: Optional[datetime] = None
     
+    # WebSocket connection tracking
+    websocket_connected: bool = Field(default=False, description="Is WebSocket currently connected")
+    websocket_connected_at: Optional[datetime] = None
+    websocket_disconnected_at: Optional[datetime] = None
+
     # Transcription results
     transcript: str = Field(default="", description="Transcript text (updates as audio processes)")
     
@@ -56,7 +61,23 @@ class EndTranscriptionResponse(BaseModel):
     """Response when transcription session ends"""
     success: bool
     message: str
-    
+
+
+class AudioChunkMetadata(BaseModel):
+    """Metadata sent before audio chunk via WebSocket"""
+    type: str = Field(default="audio_chunk_metadata", description="Message type identifier")
+    sequence_number: int = Field(..., description="Chunk order (0, 1, 2...)")
+    chunk_size_bytes: int = Field(..., description="Size of audio data in bytes")
+    duration_seconds: float = Field(..., description="Duration of audio chunk (8-10 seconds)")
+
+class TranscriptUpdate(BaseModel):
+    """Real-time transcript update sent via WebSocket"""
+    type: str = Field(default="transcript_update", description="Message type identifier")
+    sequence_number: int = Field(..., description="Which chunk this transcript is for")
+    partial_transcript: str = Field(..., description="Transcript from this specific chunk")
+    full_transcript: str = Field(..., description="Complete transcript from all chunks so far")
+    processing_time_ms: int = Field(..., description="How long transcription took")
+
 class AudioChunk(BaseModel):
     """Individual audio chunk in real-time stream"""
     chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -77,3 +98,18 @@ class AudioChunkResponse(BaseModel):
     chunk_id: str = Field(..., description="ID of the processed chunk")
     partial_transcript: str = Field(default="", description="Transcript text from this chunk")
     full_transcript: str = Field(..., description="Complete transcript so far")
+
+class WebSocketError(BaseModel):
+    """Error message sent via WebSocket when something goes wrong"""
+    type: str = Field(default="error", description="Message type identifier")
+    error_code: str = Field(..., description="Error code for mobile app to handle")
+    error_message: str = Field(..., description="Human readable error description")
+    sequence_number: Optional[int] = Field(None, description="Which chunk caused the error, if applicable")
+
+class ConnectionConfirmed(BaseModel):
+    """Message sent when WebSocket connection is established"""
+    type: str = Field(default="connection_confirmed", description="Message type identifier")
+    transcription_session_id: str = Field(..., description="Confirmed transcription session ID")
+    message: str = Field(default="WebSocket connected, ready to receive audio", description="Status message")
+    max_chunk_size_bytes: int = Field(default=1048576, description="Maximum audio chunk size (1MB)")
+    expected_chunk_duration_seconds: int = Field(default=8, description="Expected audio chunk duration")
