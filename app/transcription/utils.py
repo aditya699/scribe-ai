@@ -5,6 +5,10 @@ Author: Aditya Bhatt
 from app.database.mongo import get_db, log_error
 from .schemas import TranscriptionSession, TranscriptionStatus
 from typing import Optional
+import asyncio
+
+TRANSCRIPTION_WORKER_POOL = asyncio.Semaphore(5)  # ← HERE IS THE SEMAPHORE
+
 
 async def start_transcription_session(session_id: str) -> TranscriptionSession:
     """
@@ -448,7 +452,7 @@ async def process_audio_chunk(transcription_session_id: str, sequence_number: in
 
 async def transcribe_audio_chunk(transcription_session_id: str, chunk_id: str) -> str:
     """
-    Transcribe an audio chunk using OpenAI gpt-4o-transcribe model.
+    Transcribe an audio chunk using OpenAI whisper-1 model.
     
     Args:
         transcription_session_id: The transcription session
@@ -460,126 +464,126 @@ async def transcribe_audio_chunk(transcription_session_id: str, chunk_id: str) -
     Raises:
         Exception: For transcription or storage errors
     """
-    try:
-        from app.core.llm import get_openai_client
-        from app.database.blob import get_blob_client
-        import io
-        
-        # 1. Get audio chunk metadata from database
-        db = await get_db()
-        chunks_collection = db["audio_chunks"]
-        
-        chunk_doc = await chunks_collection.find_one(
-            {"chunk_id": chunk_id},
-            {"_id": 0, "blob_path": 1, "sequence_number": 1}
-        )
-        
-        if not chunk_doc:
-            raise Exception(f"Audio chunk {chunk_id} not found")
-        
-        # 2. Download audio data from blob storage
-        blob_client = await get_blob_client()
-        container_name = "audio-chunks"
-        
-        blob_client_for_chunk = blob_client.get_blob_client(
-            container=container_name,
-            blob=chunk_doc["blob_path"]
-        )
-        
-        # Download audio bytes
-        audio_stream = await blob_client_for_chunk.download_blob()
-        audio_data = await audio_stream.readall()
-        
-        # 3. Create file-like object for OpenAI API
-        audio_file = io.BytesIO(audio_data)
-        # Name with .webm so the API can infer correct container
-        audio_file.name = f"chunk_{chunk_doc['sequence_number']}.webm"
-        
-        # 4. Call OpenAI Transcription API with medical context
-        openai_client = await get_openai_client()
-        
-        transcription = await openai_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file,
-            language="en",
-        )
-        
-        return transcription.text.strip()
-        
-    except Exception as e:
-        await log_error(
-            error=e,
-            location="transcription/utils.py - transcribe_audio_chunk",
-            additional_info={
-                "transcription_session_id": transcription_session_id,
-                "chunk_id": chunk_id
-            }
-        )
-        raise
+    async with TRANSCRIPTION_WORKER_POOL:
+        try:
+            from app.core.llm import get_openai_client
+            from app.database.blob import get_blob_client
+            import io
+            
+            # 1. Get audio chunk metadata from database
+            db = await get_db()
+            chunks_collection = db["audio_chunks"]
+            
+            chunk_doc = await chunks_collection.find_one(
+                {"chunk_id": chunk_id},
+                {"_id": 0, "blob_path": 1, "sequence_number": 1}
+            )
+            
+            if not chunk_doc:
+                raise Exception(f"Audio chunk {chunk_id} not found")
+            
+            # 2. Download audio data from blob storage
+            blob_client = await get_blob_client()
+            container_name = "audio-chunks"
+            
+            blob_client_for_chunk = blob_client.get_blob_client(
+                container=container_name,
+                blob=chunk_doc["blob_path"]
+            )
+            
+            # Download audio bytes
+            audio_stream = await blob_client_for_chunk.download_blob()
+            audio_data = await audio_stream.readall()
+            
+            # 3. Create file-like object for OpenAI API
+            audio_file = io.BytesIO(audio_data)
+            # Name with .webm so the API can infer correct container
+            audio_file.name = f"chunk_{chunk_doc['sequence_number']}.webm"
+            
+            # 4. Call OpenAI Transcription API
+            openai_client = await get_openai_client()
+            
+            transcription = await openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+            )
+            
+            return transcription.text.strip()
+            
+        except Exception as e:
+            await log_error(
+                error=e,
+                location="transcription/utils.py - transcribe_audio_chunk",
+                additional_info={
+                    "transcription_session_id": transcription_session_id,
+                    "chunk_id": chunk_id
+                }
+            )
+            raise
 
 async def update_session_transcript(transcription_session_id: str, new_text: str, sequence_number: int) -> str:
-    """
-    Update the session transcript with new transcribed text.
-    
-    Args:
-        transcription_session_id: The transcription session to update
-        new_text: Transcribed text from the latest audio chunk
-        sequence_number: Which chunk this text is from
+        """     
+        Update the session transcript with new transcribed text.
         
-    Returns:
-        str: The complete updated transcript
-        
-    Raises:
-        Exception: For database errors
-    """
-    try:
-        db = await get_db()
-        transcription_collection = db["transcription_sessions"]
-        
-        # Get current transcript
-        session = await transcription_collection.find_one(
-            {"transcription_session_id": transcription_session_id},
-            {"_id": 0, "transcript": 1}
-        )
-        
-        if not session:
-            raise Exception(f"Transcription session {transcription_session_id} not found")
-        
-        # Append new text to existing transcript
-        current_transcript = session.get("transcript", "")
-        
-        # Add space if transcript already has content
-        if current_transcript and new_text:
-            updated_transcript = f"{current_transcript} {new_text.strip()}"
-        else:
-            updated_transcript = new_text.strip()
-        
-        # Update the session transcript in database
-        update_result = await transcription_collection.update_one(
-            {"transcription_session_id": transcription_session_id},
-            {
-                "$set": {
-                    "transcript": updated_transcript
+        Args:
+            transcription_session_id: The transcription session to update
+            new_text: Transcribed text from the latest audio chunk
+            sequence_number: Which chunk this text is from
+            
+        Returns:
+            str: The complete updated transcript
+            
+        Raises:
+            Exception: For database errors
+        """
+        try:
+            db = await get_db()
+            transcription_collection = db["transcription_sessions"]
+            
+            # Get current transcript
+            session = await transcription_collection.find_one(
+                {"transcription_session_id": transcription_session_id},
+                {"_id": 0, "transcript": 1}
+            )
+            
+            if not session:
+                raise Exception(f"Transcription session {transcription_session_id} not found")
+            
+            # Append new text to existing transcript
+            current_transcript = session.get("transcript", "")
+            
+            # Add space if transcript already has content
+            if current_transcript and new_text:
+                updated_transcript = f"{current_transcript} {new_text.strip()}"
+            else:
+                updated_transcript = new_text.strip()
+            
+            # Update the session transcript in database
+            update_result = await transcription_collection.update_one(
+                {"transcription_session_id": transcription_session_id},
+                {
+                    "$set": {
+                        "transcript": updated_transcript
+                    }
                 }
-            }
-        )
-        
-        if update_result.modified_count == 0:
-            raise Exception(f"Failed to update transcript for session {transcription_session_id}")
-        
-        return updated_transcript
-        
-    except Exception as e:
-        await log_error(
-            error=e,
-            location="transcription/utils.py - update_session_transcript",
-            additional_info={
-                "transcription_session_id": transcription_session_id,
-                "sequence_number": sequence_number,
-                "new_text_length": len(new_text) if new_text else 0
-            }
-        )
-        raise
+            )
+            
+            if update_result.modified_count == 0:
+                raise Exception(f"Failed to update transcript for session {transcription_session_id}")
+            
+            return updated_transcript
+            
+        except Exception as e:
+            await log_error(
+                error=e,
+                location="transcription/utils.py - update_session_transcript",
+                additional_info={
+                    "transcription_session_id": transcription_session_id,
+                    "sequence_number": sequence_number,
+                    "new_text_length": len(new_text) if new_text else 0
+                }
+            )   
+            raise
 
 async def process_audio_chunk_complete(transcription_session_id: str, sequence_number: int, audio_data: bytes) -> dict:
     """
@@ -646,3 +650,121 @@ async def process_audio_chunk_complete(transcription_session_id: str, sequence_n
             sequence_number=sequence_number
         )
         return error.model_dump()
+    
+
+async def process_audio_chunk_background(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes):
+    """
+    Background task for processing audio chunks without blocking the WebSocket receive loop.
+    Uses response buffer to ensure responses are sent in correct sequence order.
+    
+    Args:
+        response_buffer: Dict to store completed responses waiting to be sent
+        next_sequence_to_send: Mutable list [sequence_number] shared across tasks
+        websocket: WebSocket connection to send responses
+        transcription_session_id: The transcription session
+        sequence_number: Which chunk this is (0, 1, 2...)
+        audio_data: Raw audio bytes from mobile app
+    """
+    try:
+        # Run the complete processing pipeline
+        response = await process_audio_chunk_complete(
+            transcription_session_id, 
+            sequence_number, 
+            audio_data
+        )
+        
+        # Store response in buffer instead of sending immediately
+        response_buffer[sequence_number] = response
+        
+        # Send buffered responses in correct sequence order
+        await send_buffered_responses(response_buffer, next_sequence_to_send, websocket)
+        
+    except Exception as e:
+        # Log error but don't crash the WebSocket
+        await log_error(
+            error=e,
+            location="transcription/utils.py - process_audio_chunk_background",
+            additional_info={
+                "transcription_session_id": transcription_session_id,
+                "sequence_number": sequence_number,
+                "audio_size_bytes": len(audio_data)
+            }
+        )
+        
+        # Send error response to mobile app
+        from .schemas import WebSocketError
+        error_response = WebSocketError(
+            error_code="PROCESSING_ERROR",
+            error_message=f"Failed to process audio chunk {sequence_number}",
+            sequence_number=sequence_number
+        )
+        
+        try:
+            await websocket.send_text(error_response.model_dump_json())
+        except:
+            pass  # Don't fail if WebSocket is closed
+
+
+async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes):
+    """
+    Semaphore-controlled background task for processing audio chunks.
+    Limits the total number of concurrent processing tasks to prevent resource exhaustion.
+    
+    Args:
+        response_buffer: Dict to store completed responses waiting to be sent
+        next_sequence_to_send: Mutable list [sequence_number] shared across tasks
+        websocket: WebSocket connection to send responses
+        transcription_session_id: The transcription session
+        sequence_number: Which chunk this is (0, 1, 2...)
+        audio_data: Raw audio bytes from mobile app
+    """
+    # Acquire worker from pool (blocks if all 5 workers busy)
+    async with TRANSCRIPTION_WORKER_POOL:
+        await process_audio_chunk_background(
+            response_buffer, 
+            next_sequence_to_send, 
+            websocket, 
+            transcription_session_id, 
+            sequence_number, 
+            audio_data
+        )
+
+
+async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: list, websocket):
+    """
+    Send buffered responses in correct sequence order.
+    Only sends responses when all previous sequences are ready.
+    
+    Args:
+        response_buffer: Dict storing completed responses {sequence_number: response}
+        next_sequence_to_send: Mutable list [sequence_number] shared across tasks
+        websocket: WebSocket connection to send responses
+    """
+    import json
+    
+    # Keep sending responses while the next expected sequence is ready
+    while next_sequence_to_send[0] in response_buffer:
+        try:
+            # Get the response for the next sequence
+            response = response_buffer[next_sequence_to_send[0]]
+            
+            # Send it to mobile app
+            await websocket.send_text(json.dumps(response))
+            
+            # Remove from buffer (already sent)
+            del response_buffer[next_sequence_to_send[0]]
+            
+            # Move to next sequence (update shared state)
+            next_sequence_to_send[0] += 1
+            
+        except Exception as e:
+            # If sending fails, break the loop
+            await log_error(
+                error=e,
+                location="transcription/utils.py - send_buffered_responses",
+                additional_info={
+                    "sequence_number": next_sequence_to_send[0],
+                    "buffer_size": len(response_buffer)
+                }
+            )
+            break

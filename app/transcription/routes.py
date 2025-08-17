@@ -3,8 +3,9 @@ Author: Aditya Bhatt
 """
 from fastapi import APIRouter, HTTPException, WebSocket, status, Response
 from .schemas import StartTranscriptionRequest, StartTranscriptionResponse, EndTranscriptionRequest, EndTranscriptionResponse, AudioChunkMetadata, TranscriptUpdate, WebSocketError, ConnectionConfirmed
-from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete        
+from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore    
 from app.database.mongo import log_error
+import asyncio
 
 router = APIRouter(prefix="/v1/transcription", tags=["transcription"])
 
@@ -121,6 +122,9 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
         
         # 5. Keep connection alive and process messages
         expected_sequence = 0  # Track expected chunk sequence
+        active_tasks = {}  # Track background processing tasks
+        response_buffer = {}  # Buffer for out-of-order responses
+        next_sequence_to_send = [0]  # Mutable reference shared across tasks
         
         while True:
             # Wait for messages from mobile app
@@ -142,14 +146,23 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                     await websocket.send_text(json.dumps(error_response))
                     
             elif "bytes" in message:
-                # Binary message (audio data) - process complete pipeline
+                # Binary message (audio data) - START BACKGROUND TASK INSTEAD OF BLOCKING
                 audio_data = message["bytes"]
-                response = await process_audio_chunk_complete(
-                    transcription_session_id, 
-                    expected_sequence, 
-                    audio_data
+                
+                # Create background task with semaphore control (rate-limited)
+                task = asyncio.create_task(
+                    process_audio_chunk_with_semaphore(
+                        response_buffer,
+                        next_sequence_to_send, 
+                        websocket, 
+                        transcription_session_id, 
+                        expected_sequence, 
+                        audio_data
+                    )
                 )
-                await websocket.send_text(json.dumps(response))
+                
+                # Store task reference (cleanup handled in background function)
+                active_tasks[expected_sequence] = task
                 expected_sequence += 1  # Increment for next chunk
                 
             else:
@@ -180,7 +193,7 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
             await mark_websocket_disconnected(transcription_session_id)
         except:
             pass  # Don't fail if cleanup fails
-
+        
 
 @router.get("/health", response_model=dict)
 async def transcription_health_check():
