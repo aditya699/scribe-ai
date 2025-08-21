@@ -126,6 +126,9 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
         response_buffer = {}  # Buffer for out-of-order responses
         next_sequence_to_send = [0]  # Mutable reference shared across tasks
         
+        # CREATE THE LOCK HERE - shared across all background tasks
+        buffer_lock = asyncio.Lock()
+        
         while True:
             # Wait for messages from mobile app
             message = await websocket.receive()
@@ -157,7 +160,8 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         websocket, 
                         transcription_session_id, 
                         expected_sequence, 
-                        audio_data
+                        audio_data,
+                        buffer_lock
                     )
                 )
                 

@@ -652,7 +652,7 @@ async def process_audio_chunk_complete(transcription_session_id: str, sequence_n
         return error.model_dump()
     
 
-async def process_audio_chunk_background(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes):
+async def process_audio_chunk_background(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes, buffer_lock: asyncio.Lock):
     """
     Background task for processing audio chunks without blocking the WebSocket receive loop.
     Uses response buffer to ensure responses are sent in correct sequence order.
@@ -673,11 +673,13 @@ async def process_audio_chunk_background(response_buffer: dict, next_sequence_to
             audio_data
         )
         
-        # Store response in buffer instead of sending immediately
-        response_buffer[sequence_number] = response
-        
-        # Send buffered responses in correct sequence order
-        await send_buffered_responses(response_buffer, next_sequence_to_send, websocket)
+        # CRITICAL SECTION: Use the lock here
+        async with buffer_lock:
+            # Store response in buffer instead of sending immediately
+            response_buffer[sequence_number] = response
+            
+            # Send buffered responses in correct sequence order
+            await send_buffered_responses(response_buffer, next_sequence_to_send, websocket)
         
     except Exception as e:
         # Log error but don't crash the WebSocket
@@ -705,7 +707,7 @@ async def process_audio_chunk_background(response_buffer: dict, next_sequence_to
             pass  # Don't fail if WebSocket is closed
 
 
-async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes):
+async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes, buffer_lock: asyncio.Lock):
     """
     Semaphore-controlled background task for processing audio chunks.
     Limits the total number of concurrent processing tasks to prevent resource exhaustion.
@@ -726,7 +728,8 @@ async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequenc
             websocket, 
             transcription_session_id, 
             sequence_number, 
-            audio_data
+            audio_data,
+            buffer_lock
         )
 
 
@@ -734,6 +737,7 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
     """
     Send buffered responses in correct sequence order.
     Only sends responses when all previous sequences are ready.
+    NOTE: This function must be called within buffer_lock to prevent race conditions.
     
     Args:
         response_buffer: Dict storing completed responses {sequence_number: response}
