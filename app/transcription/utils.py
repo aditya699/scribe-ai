@@ -10,6 +10,26 @@ import asyncio
 TRANSCRIPTION_WORKER_POOL = asyncio.Semaphore(5)  # ← HERE IS THE SEMAPHORE
 
 
+def is_websocket_open(websocket) -> bool:
+    """
+    Check if WebSocket connection is still open and ready to send messages.
+    
+    Args:
+        websocket: FastAPI WebSocket connection object
+        
+    Returns:
+        bool: True if WebSocket is open, False otherwise
+    """
+    try:
+        from starlette.websockets import WebSocketState
+        return (
+            hasattr(websocket, 'client_state') and 
+            websocket.client_state == WebSocketState.CONNECTED
+        )
+    except Exception:
+        return False
+
+
 async def start_transcription_session(session_id: str) -> TranscriptionSession:
     """
     Create a new transcription session for the given patient session.
@@ -693,18 +713,24 @@ async def process_audio_chunk_background(response_buffer: dict, next_sequence_to
             }
         )
         
-        # Send error response to mobile app
-        from .schemas import WebSocketError
-        error_response = WebSocketError(
-            error_code="PROCESSING_ERROR",
-            error_message=f"Failed to process audio chunk {sequence_number}",
-            sequence_number=sequence_number
-        )
-        
-        try:
-            await websocket.send_text(error_response.model_dump_json())
-        except:
-            pass  # Don't fail if WebSocket is closed
+        # 🔒 CHECK WEBSOCKET STATE BEFORE SENDING ERROR
+        if is_websocket_open(websocket):
+            try:
+                from .schemas import WebSocketError
+                error_response = WebSocketError(
+                    error_code="PROCESSING_ERROR",
+                    error_message=f"Failed to process audio chunk {sequence_number}",
+                    sequence_number=sequence_number
+                )
+                
+                await websocket.send_text(error_response.model_dump_json())
+            except Exception as send_error:
+                # If sending error message fails, just log it - don't crash
+                await log_error(
+                    error=send_error,
+                    location="transcription/utils.py - process_audio_chunk_background - error_send",
+                    additional_info={"original_error": str(e)}
+                )
 
 
 async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes, buffer_lock: asyncio.Lock):
@@ -749,6 +775,17 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
     # Keep sending responses while the next expected sequence is ready
     while next_sequence_to_send[0] in response_buffer:
         try:
+            # 🔒 CHECK WEBSOCKET STATE BEFORE SENDING
+            if not is_websocket_open(websocket):
+                # WebSocket is closed - stop trying to send and clear buffer
+                await log_error(
+                    error=Exception("WebSocket closed during buffered response send"),
+                    location="transcription/utils.py - send_buffered_responses",
+                    additional_info={"remaining_buffer_size": len(response_buffer)}
+                )
+                response_buffer.clear()  # Clear buffer to prevent memory leak
+                break
+            
             # Get the response for the next sequence
             response = response_buffer[next_sequence_to_send[0]]
             
@@ -762,7 +799,7 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
             next_sequence_to_send[0] += 1
             
         except Exception as e:
-            # If sending fails, break the loop
+            # If sending fails, log and stop trying
             await log_error(
                 error=e,
                 location="transcription/utils.py - send_buffered_responses",
@@ -771,4 +808,6 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
                     "buffer_size": len(response_buffer)
                 }
             )
+            # Clear buffer to prevent endless retry loop
+            response_buffer.clear()
             break

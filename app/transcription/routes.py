@@ -3,7 +3,7 @@ Author: Aditya Bhatt
 """
 from fastapi import APIRouter, HTTPException, WebSocket, status, Response
 from .schemas import StartTranscriptionRequest, StartTranscriptionResponse, EndTranscriptionRequest, EndTranscriptionResponse, AudioChunkMetadata, TranscriptUpdate, WebSocketError, ConnectionConfirmed
-from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore    
+from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore, is_websocket_open    
 from app.database.mongo import log_error
 import asyncio
 
@@ -104,6 +104,7 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
         websocket: WebSocket connection object
         transcription_session_id: The transcription session to stream for
     """
+    active_tasks = {}  # Track background processing tasks (initialized early for cleanup safety)
     try:
         # 1. Validate the transcription session
         await validate_websocket_connection(transcription_session_id)
@@ -118,11 +119,11 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
         confirmation = ConnectionConfirmed(
             transcription_session_id=transcription_session_id
         )
-        await websocket.send_text(confirmation.model_dump_json())
+        if is_websocket_open(websocket):
+            await websocket.send_text(confirmation.model_dump_json())
         
         # 5. Keep connection alive and process messages
         expected_sequence = 0  # Track expected chunk sequence
-        active_tasks = {}  # Track background processing tasks
         response_buffer = {}  # Buffer for out-of-order responses
         next_sequence_to_send = [0]  # Mutable reference shared across tasks
         
@@ -130,68 +131,115 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
         buffer_lock = asyncio.Lock()
         
         while True:
-            # Wait for messages from mobile app
-            message = await websocket.receive()
-            
-            if "text" in message:
-                # Text message (JSON metadata)
-                import json
-                try:
-                    json_data = json.loads(message["text"])
-                    response = await process_websocket_message(transcription_session_id, json_data)
-                    await websocket.send_text(json.dumps(response))
-                except json.JSONDecodeError:
-                    error_response = {
-                        "type": "error",
-                        "error_code": "INVALID_JSON",
-                        "error_message": "Invalid JSON format"
-                    }
-                    await websocket.send_text(json.dumps(error_response))
+            try:
+                # Wait for messages from mobile app
+                message = await websocket.receive()
+                
+                # Explicitly handle disconnect messages
+                if message.get("type") == "websocket.disconnect":
+                    print(f"🔌 Client disconnected from session {transcription_session_id}")
+                    break
+                
+                if "text" in message:
+                    # Text message (JSON metadata)
+                    import json
+                    try:
+                        json_data = json.loads(message["text"])
+                        response = await process_websocket_message(transcription_session_id, json_data)
+                        # 🔒 CHECK STATE BEFORE SENDING RESPONSE
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(response))
+                    except json.JSONDecodeError:
+                        error_response = {
+                            "type": "error",
+                            "error_code": "INVALID_JSON",
+                            "error_message": "Invalid JSON format"
+                        }
+                        # 🔒 CHECK STATE BEFORE SENDING ERROR
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(error_response))
+                        
+                elif "bytes" in message:
+                    # Binary message (audio data) - START BACKGROUND TASK INSTEAD OF BLOCKING
+                    audio_data = message["bytes"]
                     
-            elif "bytes" in message:
-                # Binary message (audio data) - START BACKGROUND TASK INSTEAD OF BLOCKING
-                audio_data = message["bytes"]
-                
-                # Create background task with semaphore control (rate-limited)
-                task = asyncio.create_task(
-                    process_audio_chunk_with_semaphore(
-                        response_buffer,
-                        next_sequence_to_send, 
-                        websocket, 
-                        transcription_session_id, 
-                        expected_sequence, 
-                        audio_data,
-                        buffer_lock
+                    print(f"📦 Received audio chunk {expected_sequence} ({len(audio_data)} bytes)")
+                    
+                    # Create background task with semaphore control (rate-limited)
+                    task = asyncio.create_task(
+                        process_audio_chunk_with_semaphore(
+                            response_buffer,
+                            next_sequence_to_send, 
+                            websocket, 
+                            transcription_session_id, 
+                            expected_sequence, 
+                            audio_data,
+                            buffer_lock
+                        )
                     )
-                )
-                
-                # Store task reference (cleanup handled in background function)
-                active_tasks[expected_sequence] = task
-                expected_sequence += 1  # Increment for next chunk
-                
-            else:
-                # Unknown message type
-                error_response = {
-                    "type": "error", 
-                    "error_code": "UNKNOWN_MESSAGE_TYPE",
-                    "error_message": "Message must be text or binary"
-                }
-                await websocket.send_text(json.dumps(error_response))
+                    
+                    # Store task reference (cleanup handled in background function)
+                    active_tasks[expected_sequence] = task
+                    expected_sequence += 1  # Increment for next chunk
+                    
+                else:
+                    # Unknown message type
+                    error_response = {
+                        "type": "error", 
+                        "error_code": "UNKNOWN_MESSAGE_TYPE",
+                        "error_message": "Message must be text or binary"
+                    }
+                    # 🔒 CHECK STATE BEFORE SENDING ERROR
+                    if is_websocket_open(websocket):
+                        await websocket.send_text(json.dumps(error_response))
+            except RuntimeError as e:
+                # Handle starlette disconnect runtime error
+                if "disconnect message has been received" in str(e):
+                    print(f"🔌 WebSocket disconnect detected for session {transcription_session_id}")
+                    break
+                else:
+                    raise
             
     except ValueError as e:
         # Validation failed - close connection with error
-        await websocket.close(code=4000, reason=str(e))
+        print(f"❌ Validation failed: {str(e)}")
+        if is_websocket_open(websocket):
+            await websocket.close(code=4000, reason=str(e))
         
     except Exception as e:
         # Log unexpected errors
+        print(f"❌ WebSocket error: {str(e)}")
         await log_error(
             error=e,
             location="transcription/routes.py - transcription_websocket",
             additional_info={"transcription_session_id": transcription_session_id}
         )
-        await websocket.close(code=1011, reason="Internal server error")
+        # 🔒 ONLY CLOSE IF NOT ALREADY CLOSED
+        if is_websocket_open(websocket):
+            try:
+                await websocket.close(code=1011, reason="Internal server error")
+            except:
+                pass  # Already closed by client or network
         
     finally:
+        print(f"🧹 Cleaning up WebSocket session {transcription_session_id}")
+        # Cancel any active background tasks
+        try:
+            for task_id, task in active_tasks.items():
+                if not task.done():
+                    print(f"🛑 Cancelling background task for chunk {task_id}")
+                    task.cancel()
+            # Wait for tasks to finish cancelling (with timeout)
+            if active_tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*active_tasks.values(), return_exceptions=True),
+                        timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    print(f"⚠️ Some background tasks didn't cancel within 5 seconds")
+        except Exception:
+            pass
         # Always mark as disconnected when WebSocket closes
         try:
             await mark_websocket_disconnected(transcription_session_id)

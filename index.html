@@ -3,842 +3,361 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medical Transcription Test Client</title>
+    <title>Medical Transcription Client</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #06b6d4 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: #1f2937;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
         }
-
         .container {
-            max-width: 1400px;
+            max-width: 800px;
             margin: 0 auto;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 25px 50px rgba(0,0,0,0.15);
-            overflow: hidden;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #dc2626 0%, #ef4444 50%, #f97316 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            font-weight: 800;
-        }
-
-        .header p {
-            opacity: 0.95;
-            font-size: 1.1rem;
-        }
-
-        .content {
-            padding: 30px;
-        }
-
-        .test-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 25px;
-        }
-
-        .section {
-            background: #f8fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
             padding: 20px;
-            transition: all 0.3s ease;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-
-        .section:hover {
-            border-color: #3b82f6;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
         }
-
-        .section.full-width {
-            grid-column: 1 / -1;
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
         }
-
-        .section.half-width {
-            grid-column: span 2;
+        .btn:hover { background: #0056b3; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        .btn.danger { background: #dc3545; }
+        .btn.danger:hover { background: #c82333; }
+        .btn.success { background: #28a745; }
+        .btn.success:hover { background: #218838; }
+        
+        input {
+            width: 200px;
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
-
-        .section h3 {
-            color: #1f2937;
-            margin-bottom: 15px;
-            font-size: 1.2rem;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .transcript {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            min-height: 100px;
+            border-radius: 4px;
+            font-size: 16px;
+            line-height: 1.5;
         }
-
-        .status-dot {
+        .transcript.empty {
+            color: #6c757d;
+            font-style: italic;
+        }
+        .logs {
+            background: #343a40;
+            color: white;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+        .status {
+            display: inline-block;
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: #ef4444;
-            transition: all 0.3s ease;
+            background: red;
+            margin-right: 5px;
         }
-
-        .status-dot.connected {
-            background: #10b981;
-            box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
-        }
-
-        .status-dot.warning {
-            background: #f59e0b;
-            box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
-        }
-
-        .input-group {
-            margin-bottom: 12px;
-        }
-
-        .input-group label {
-            display: block;
-            margin-bottom: 4px;
-            font-weight: 600;
-            color: #374151;
-            font-size: 13px;
-        }
-
-        .input-group input, .input-group select {
-            width: 100%;
-            padding: 8px 10px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 13px;
-            transition: all 0.2s ease;
-        }
-
-        .input-group input:focus, .input-group select:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-        }
-
-        .btn {
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-            color: white;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-right: 6px;
-            margin-bottom: 6px;
-        }
-
-        .btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
-        }
-
-        .btn:disabled {
-            background: #9ca3af;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .btn.danger {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        }
-
-        .btn.success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        }
-
-        .btn.warning {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-        }
-
-        .btn.small {
-            padding: 4px 8px;
-            font-size: 11px;
-        }
-
-        .response-box {
-            background: #f1f5f9;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 10px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 11px;
-            max-height: 120px;
-            overflow-y: auto;
-            margin-top: 8px;
-        }
-
-        .response-box.success {
-            background: #f0fdf4;
-            border-color: #bbf7d0;
-            color: #166534;
-        }
-
-        .response-box.error {
-            background: #fef2f2;
-            border-color: #fecaca;
-            color: #dc2626;
-        }
-
-        .stats-grid {
+        .status.connected { background: green; }
+        .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
             margin-top: 10px;
         }
-
-        .stat-card {
-            background: white;
-            padding: 8px;
-            border-radius: 6px;
+        .stat {
             text-align: center;
-            border: 1px solid #e5e7eb;
-        }
-
-        .stat-value {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #3b82f6;
-            margin-bottom: 2px;
-        }
-
-        .stat-label {
-            font-size: 0.7rem;
-            color: #6b7280;
-            font-weight: 500;
-        }
-
-        .transcript-container {
-            background: white;
-            border: 2px solid #e5e7eb;
-            border-radius: 10px;
-            padding: 20px;
-            min-height: 150px;
-            font-size: 14px;
-            line-height: 1.6;
-            color: #1f2937;
-            position: relative;
-        }
-
-        .transcript-container.empty {
-            color: #9ca3af;
-            font-style: italic;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-        }
-
-        .transcript-sequence {
-            display: inline-block;
-            background: #dbeafe;
-            color: #1e40af;
-            padding: 2px 6px;
+            padding: 10px;
+            background: #e9ecef;
             border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            margin-right: 4px;
-            margin-bottom: 2px;
         }
-
-        .log-container {
-            background: #111827;
-            color: #f3f4f6;
-            padding: 15px;
-            border-radius: 8px;
-            height: 200px;
-            overflow-y: auto;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 11px;
-            line-height: 1.4;
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
         }
-
-        .log-entry {
-            margin-bottom: 4px;
-            padding: 2px 6px;
-            border-radius: 3px;
-        }
-
-        .log-entry.info {
-            background: rgba(59, 130, 246, 0.15);
-            border-left: 2px solid #3b82f6;
-        }
-
-        .log-entry.success {
-            background: rgba(16, 185, 129, 0.15);
-            border-left: 2px solid #10b981;
-        }
-
-        .log-entry.error {
-            background: rgba(239, 68, 68, 0.15);
-            border-left: 2px solid #ef4444;
-        }
-
-        .log-entry.websocket {
-            background: rgba(168, 85, 247, 0.15);
-            border-left: 2px solid #a855f7;
-        }
-
-        .log-entry.warning {
-            background: rgba(245, 158, 11, 0.15);
-            border-left: 2px solid #f59e0b;
-        }
-
-        .test-mode-selector {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 8px;
-            margin-bottom: 15px;
-        }
-
-        .test-mode {
-            padding: 8px;
-            background: #f3f4f6;
-            border: 2px solid #e5e7eb;
-            border-radius: 6px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s ease;
+        .stat-label {
             font-size: 12px;
-        }
-
-        .test-mode.active {
-            border-color: #3b82f6;
-            background: #dbeafe;
-            color: #1e40af;
-            font-weight: 600;
-        }
-
-        .race-condition-indicator {
-            background: #fef3c7;
-            border: 1px solid #f59e0b;
-            border-radius: 6px;
-            padding: 10px;
-            margin-top: 10px;
-            font-size: 12px;
-        }
-
-        .race-condition-indicator.detected {
-            background: #fee2e2;
-            border-color: #ef4444;
-            color: #dc2626;
-        }
-
-        .race-condition-indicator.passed {
-            background: #d1fae5;
-            border-color: #10b981;
-            color: #065f46;
-        }
-
-        .recording-pulse {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            background: #ef4444;
-            border-radius: 50%;
-            animation: pulse 1.2s infinite;
-            margin-right: 6px;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(1.3); }
-            100% { opacity: 1; transform: scale(1); }
-        }
-
-        .chunk-timeline {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            margin-top: 10px;
-        }
-
-        .chunk-item {
-            width: 30px;
-            height: 20px;
-            border-radius: 3px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            font-weight: 600;
-            color: white;
-        }
-
-        .chunk-item.sent {
-            background: #3b82f6;
-        }
-
-        .chunk-item.processing {
-            background: #f59e0b;
-            animation: pulse 1s infinite;
-        }
-
-        .chunk-item.completed {
-            background: #10b981;
-        }
-
-        .chunk-item.error {
-            background: #ef4444;
+            color: #6c757d;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🩺 Medical Transcription Test Client</h1>
-            <p>Race condition detection & production stress testing</p>
+        <h1>🩺 Medical Transcription Client</h1>
+        <p>Simple client for testing 8-second medical transcription</p>
+        
+        <!-- Setup -->
+        <div class="section">
+            <h3>Setup</h3>
+            <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="API URL">
+            <input type="text" id="doctorId" value="dr_test_001" placeholder="Doctor ID">
+            <button class="btn" onclick="initSystem()">🚀 Initialize System</button>
+            <button class="btn" onclick="testRaceCondition()">⚡ Test Race Condition</button>
         </div>
 
-        <div class="content">
-            <!-- Configuration -->
-            <div class="section full-width">
-                <h3>⚙️ Configuration</h3>
-                <div class="test-grid">
-                    <div class="input-group">
-                        <label>API Base URL:</label>
-                        <input type="text" id="apiUrl" value="http://localhost:8000">
-                    </div>
-                    <div class="input-group">
-                        <label>Doctor ID:</label>
-                        <input type="text" id="doctorId" value="dr_test_001">
-                    </div>
-                    <div class="input-group">
-                        <label>Patient Name:</label>
-                        <input type="text" id="patientName" value="Test Patient">
-                    </div>
+        <!-- Status -->
+        <div class="section">
+            <h3>
+                <span class="status" id="systemStatus"></span>
+                System Status
+            </h3>
+            <p id="statusText">Not initialized</p>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="sessionCount">0</div>
+                    <div class="stat-label">Sessions</div>
                 </div>
-                <button class="btn" onclick="initializeSystem()">🚀 Initialize System</button>
-                <button class="btn warning" onclick="runStressTest()">⚡ Stress Test</button>
-                <button class="btn small" onclick="clearLogs()">Clear Logs</button>
-            </div>
-
-            <div class="test-grid">
-                <!-- Session Status -->
-                <div class="section">
-                    <h3>
-                        <span class="status-dot" id="sessionStatus"></span>
-                        📋 Session
-                    </h3>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value" id="sessionIdDisplay">-</div>
-                            <div class="stat-label">Session</div>
-                        </div>
-                    </div>
-                    <button class="btn small" onclick="createSession()">Create</button>
-                    <div class="response-box" id="sessionResponse"></div>
+                <div class="stat">
+                    <div class="stat-value" id="chunkCount">0</div>
+                    <div class="stat-label">Chunks</div>
                 </div>
-
-                <!-- Transcription Status -->
-                <div class="section">
-                    <h3>
-                        <span class="status-dot" id="transcriptionStatus"></span>
-                        🎤 Transcription
-                    </h3>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value" id="transcriptionIdDisplay">-</div>
-                            <div class="stat-label">T-Session</div>
-                        </div>
-                    </div>
-                    <button class="btn small" onclick="startTranscription()" disabled id="startTranscriptionBtn">Start</button>
-                    <button class="btn small danger" onclick="endTranscription()" disabled id="endTranscriptionBtn">End</button>
-                    <div class="response-box" id="transcriptionResponse"></div>
+                <div class="stat">
+                    <div class="stat-value" id="wordCount">0</div>
+                    <div class="stat-label">Words</div>
                 </div>
-
-                <!-- WebSocket Status -->
-                <div class="section">
-                    <h3>
-                        <span class="status-dot" id="wsStatus"></span>
-                        🔗 WebSocket
-                    </h3>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value" id="wsMessages">0</div>
-                            <div class="stat-label">Messages</div>
-                        </div>
-                    </div>
-                    <button class="btn small" onclick="connectWebSocket()" disabled id="connectBtn">Connect</button>
-                    <button class="btn small danger" onclick="disconnectWebSocket()" disabled id="disconnectBtn">Disconnect</button>
-                    <div class="response-box" id="wsResponse"></div>
+                <div class="stat">
+                    <div class="stat-value" id="errorCount">0</div>
+                    <div class="stat-label">Errors</div>
                 </div>
             </div>
+        </div>
 
-            <!-- Test Mode Selection -->
-            <div class="section full-width">
-                <h3>🧪 Test Modes</h3>
-                <div class="test-mode-selector">
-                    <div class="test-mode active" onclick="selectTestMode('normal')" id="modeNormal">
-                        📱 Normal Mode<br><small>8s chunks, realistic</small>
-                    </div>
-                    <div class="test-mode" onclick="selectTestMode('race')" id="modeRace">
-                        ⚡ Race Test<br><small>Rapid concurrent</small>
-                    </div>
-                    <div class="test-mode" onclick="selectTestMode('stress')" id="modeStress">
-                        💪 Stress Test<br><small>High load</small>
-                    </div>
-                    <div class="test-mode" onclick="selectTestMode('error')" id="modeError">
-                        💥 Error Test<br><small>Failure scenarios</small>
-                    </div>
-                </div>
-                
-                <div class="race-condition-indicator" id="raceIndicator">
-                    🔍 Race condition detection: Ready to test
-                </div>
+        <!-- Recording -->
+        <div class="section">
+            <h3>🎙️ Recording</h3>
+            <button class="btn success" onclick="startRecording()" disabled id="recordBtn">Start Recording</button>
+            <button class="btn danger" onclick="stopRecording()" disabled id="stopBtn">Stop Recording</button>
+            <button class="btn" onclick="sendTestChunk()" disabled id="testBtn">Send Test Chunk</button>
+            <p id="recordStatus">Ready</p>
+        </div>
+
+        <!-- Transcript -->
+        <div class="section">
+            <h3>📝 Live Transcript</h3>
+            <div class="transcript empty" id="transcript">
+                Transcript will appear here as you speak...
             </div>
+        </div>
 
-            <!-- Audio Recording -->
-            <div class="section half-width">
-                <h3>🎙️ Audio Recording</h3>
-                
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value" id="chunkCount">0</div>
-                        <div class="stat-label">Chunks</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="avgProcessTime">0</div>
-                        <div class="stat-label">Avg (ms)</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="totalWords">0</div>
-                        <div class="stat-label">Words</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="errorCount">0</div>
-                        <div class="stat-label">Errors</div>
-                    </div>
-                </div>
-
-                <button class="btn success" onclick="startRecording()" disabled id="recordBtn">
-                    🎤 Start Recording
-                </button>
-                <button class="btn danger" onclick="stopRecording()" disabled id="stopBtn">
-                    ⏹️ Stop
-                </button>
-                <button class="btn small warning" onclick="sendTestChunk()">📦 Send Test Chunk</button>
-
-                <p id="recordingStatus">Ready to record</p>
-                
-                <div class="chunk-timeline" id="chunkTimeline"></div>
-            </div>
-
-            <!-- Live Transcript -->
-            <div class="section">
-                <h3>📝 Live Transcript</h3>
-                <div class="transcript-container empty" id="transcript">
-                    Start recording to see transcript appear here...
-                </div>
-            </div>
-
-            <!-- System Logs -->
-            <div class="section full-width">
-                <h3>📊 System Logs</h3>
-                <div class="log-container" id="logs"></div>
-            </div>
+        <!-- Logs -->
+        <div class="section">
+            <h3>📋 Logs</h3>
+            <div class="logs" id="logs"></div>
+            <button class="btn" onclick="clearLogs()" style="margin-top: 10px;">Clear</button>
         </div>
     </div>
 
     <script>
-        // Global state
-        let currentSessionId = null;
-        let transcriptionSessionId = null;
+        // Global variables
+        let sessionId = null;
+        let transcriptionId = null;
         let websocket = null;
         let mediaRecorder = null;
         let audioStream = null;
         let sequenceNumber = 0;
-        let processingTimes = [];
-        let wsMessageCount = 0;
-        let chunkStates = new Map(); // Track chunk processing states
-        let testMode = 'normal';
-        let raceConditionDetected = false;
         let expectedSequence = 0;
-        let receivedSequences = [];
+        let raceConditionDetected = false;
 
         // Logging
-        function addLog(message, type = 'info') {
+        function log(message, type = 'info') {
             const logs = document.getElementById('logs');
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> ${message}`;
-            logs.appendChild(entry);
+            const time = new Date().toLocaleTimeString();
+            const color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : '#74c0fc';
+            logs.innerHTML += `<div style="color: ${color}">[${time}] ${message}</div>`;
             logs.scrollTop = logs.scrollHeight;
+            console.log(`[${type}] ${message}`);
         }
 
         function clearLogs() {
             document.getElementById('logs').innerHTML = '';
-            addLog('Logs cleared', 'info');
         }
 
-        function updateStatus(elementId, connected) {
-            const indicator = document.getElementById(elementId);
-            if (connected) {
-                indicator.classList.add('connected');
-            } else {
-                indicator.classList.remove('connected');
+        // Initialize complete system
+        async function initSystem() {
+            log('🚀 Initializing system...');
+            
+            try {
+                // Reset state
+                sequenceNumber = 0;
+                expectedSequence = 0;
+                raceConditionDetected = false;
+                
+                // Step 1: Create session
+                log('📋 Creating session...');
+                await createSession();
+                
+                // Step 2: Start transcription
+                log('🎤 Starting transcription...');
+                await startTranscription();
+                
+                // Step 3: Connect WebSocket
+                log('🔗 Connecting WebSocket...');
+                await connectWebSocket();
+                
+                // Update UI
+                document.getElementById('systemStatus').classList.add('connected');
+                document.getElementById('statusText').textContent = 'System ready';
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('testBtn').disabled = false;
+                document.getElementById('sessionCount').textContent = '1';
+                
+                log('✅ System initialized successfully!', 'success');
+                
+            } catch (error) {
+                log(`❌ Initialization failed: ${error.message}`, 'error');
+                document.getElementById('errorCount').textContent = 
+                    parseInt(document.getElementById('errorCount').textContent) + 1;
             }
         }
 
-        function selectTestMode(mode) {
-            testMode = mode;
-            document.querySelectorAll('.test-mode').forEach(el => el.classList.remove('active'));
-            document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`).classList.add('active');
-            
-            addLog(`Test mode changed to: ${mode}`, 'info');
-            
-            // Update race condition indicator
-            const indicator = document.getElementById('raceIndicator');
-            if (mode === 'race') {
-                indicator.textContent = '⚡ Race condition test mode: Will send rapid chunks to test ordering';
-                indicator.className = 'race-condition-indicator';
-            } else if (mode === 'stress') {
-                indicator.textContent = '💪 Stress test mode: High volume concurrent processing';
-                indicator.className = 'race-condition-indicator';
-            } else {
-                indicator.textContent = '🔍 Race condition detection: Monitoring sequence order';
-                indicator.className = 'race-condition-indicator';
-            }
-        }
-
-        function addChunkToTimeline(sequence, state) {
-            const timeline = document.getElementById('chunkTimeline');
-            let chunk = document.getElementById(`chunk-${sequence}`);
-            
-            if (!chunk) {
-                chunk = document.createElement('div');
-                chunk.className = `chunk-item ${state}`;
-                chunk.id = `chunk-${sequence}`;
-                chunk.textContent = sequence;
-                timeline.appendChild(chunk);
-            } else {
-                chunk.className = `chunk-item ${state}`;
-            }
-        }
-
-        // Session Management
+        // Create session
         async function createSession() {
             const apiUrl = document.getElementById('apiUrl').value;
             const doctorId = document.getElementById('doctorId').value;
-            const patientName = document.getElementById('patientName').value;
+            
+            const response = await fetch(`${apiUrl}/v1/sessions/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    doctor_id: doctorId,
+                    patient_name: `Test Patient ${new Date().getMinutes()}`,
+                    patient_whatsapp_number: `+1555${Math.floor(Math.random() * 10000)}`
+                })
+            });
 
-            try {
-                addLog('Creating session...', 'info');
-                
-                const response = await fetch(`${apiUrl}/v1/sessions/create`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        doctor_id: doctorId,
-                        patient_name: patientName,
-                        patient_whatsapp_number: `+1555${Date.now().toString().slice(-4)}`
-                    })
-                });
-
-                const data = await response.json();
-                document.getElementById('sessionResponse').innerHTML = JSON.stringify(data, null, 2);
-
-                if (response.ok && data.success) {
-                    currentSessionId = data.session.session_id;
-                    addLog(`Session created: ${currentSessionId}`, 'success');
-                    updateStatus('sessionStatus', true);
-                    document.getElementById('sessionIdDisplay').textContent = currentSessionId.slice(-6);
-                    document.getElementById('sessionResponse').className = 'response-box success';
-                    document.getElementById('startTranscriptionBtn').disabled = false;
-                } else {
-                    throw new Error(data.detail || 'Failed to create session');
-                }
-            } catch (error) {
-                addLog(`Session creation failed: ${error.message}`, 'error');
-                document.getElementById('sessionResponse').className = 'response-box error';
+            if (!response.ok) {
+                throw new Error(`Session creation failed: ${response.status}`);
             }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.detail || 'Session creation failed');
+            }
+
+            sessionId = data.session.session_id;
+            log(`Session created: ${sessionId}`);
         }
 
-        // Transcription Management
+        // Start transcription
         async function startTranscription() {
             const apiUrl = document.getElementById('apiUrl').value;
-            try {
-                addLog('Starting transcription...', 'info');
-                
-                const response = await fetch(`${apiUrl}/v1/transcription/start`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: currentSessionId })
-                });
-
-                const data = await response.json();
-                document.getElementById('transcriptionResponse').innerHTML = JSON.stringify(data, null, 2);
-
-                if (response.ok && data.success) {
-                    transcriptionSessionId = data.transcription_session_id;
-                    addLog(`Transcription started: ${transcriptionSessionId}`, 'success');
-                    updateStatus('transcriptionStatus', true);
-                    document.getElementById('transcriptionIdDisplay').textContent = transcriptionSessionId.slice(-6);
-                    document.getElementById('transcriptionResponse').className = 'response-box success';
-                    document.getElementById('connectBtn').disabled = false;
-                    document.getElementById('endTranscriptionBtn').disabled = false;
-                } else {
-                    throw new Error(data.detail || 'Failed to start transcription');
-                }
-            } catch (error) {
-                addLog(`Transcription start failed: ${error.message}`, 'error');
-                document.getElementById('transcriptionResponse').className = 'response-box error';
-            }
-        }
-
-        async function endTranscription() {
-            const apiUrl = document.getElementById('apiUrl').value;
-            try {
-                addLog('Ending transcription...', 'info');
-                
-                const response = await fetch(`${apiUrl}/v1/transcription/end`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ transcription_session_id: transcriptionSessionId })
-                });
-
-                const data = await response.json();
-                if (response.ok && data.success) {
-                    addLog('Transcription ended successfully', 'success');
-                    updateStatus('transcriptionStatus', false);
-                    transcriptionSessionId = null;
-                    document.getElementById('transcriptionIdDisplay').textContent = '-';
-                }
-            } catch (error) {
-                addLog(`Error ending transcription: ${error.message}`, 'error');
-            }
-        }
-
-        // WebSocket Management
-        function connectWebSocket() {
-            const apiUrl = document.getElementById('apiUrl').value;
-            const wsUrl = apiUrl.replace('http://', 'ws://').replace('https://', 'wss://');
             
-            try {
-                addLog('Connecting WebSocket...', 'websocket');
-                websocket = new WebSocket(`${wsUrl}/v1/transcription/${transcriptionSessionId}/stream`);
+            const response = await fetch(`${apiUrl}/v1/transcription/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId })
+            });
 
-                websocket.onopen = function(event) {
-                    addLog('WebSocket connected', 'websocket');
-                    updateStatus('wsStatus', true);
-                    document.getElementById('recordBtn').disabled = false;
-                    document.getElementById('disconnectBtn').disabled = false;
-                    document.getElementById('connectBtn').disabled = true;
-                    document.getElementById('wsResponse').textContent = 'Connected';
-                    document.getElementById('wsResponse').className = 'response-box success';
+            if (!response.ok) {
+                throw new Error(`Transcription start failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.detail || 'Transcription start failed');
+            }
+
+            transcriptionId = data.transcription_session_id;
+            log(`Transcription started: ${transcriptionId}`);
+        }
+
+        // Connect WebSocket
+        function connectWebSocket() {
+            return new Promise((resolve, reject) => {
+                const apiUrl = document.getElementById('apiUrl').value;
+                const wsUrl = apiUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+                
+                websocket = new WebSocket(`${wsUrl}/v1/transcription/${transcriptionId}/stream`);
+
+                websocket.onopen = () => {
+                    log('WebSocket connected');
+                    resolve();
                 };
 
-                websocket.onmessage = function(event) {
+                websocket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        wsMessageCount++;
-                        document.getElementById('wsMessages').textContent = wsMessageCount;
+                        log(`WebSocket received: ${data.type}`);
                         
                         if (data.type === 'connection_confirmed') {
-                            addLog('Connection confirmed', 'success');
-                        } else if (data.type === 'transcript_update') {
+                            log('Connection confirmed', 'success');
+                        } 
+                        else if (data.type === 'transcript_update') {
                             handleTranscriptUpdate(data);
-                        } else if (data.type === 'error') {
-                            addLog(`WebSocket error: ${data.error_message}`, 'error');
-                            document.getElementById('errorCount').textContent = parseInt(document.getElementById('errorCount').textContent) + 1;
-                        } else if (data.type === 'metadata_received') {
-                            addLog(`Metadata ack: chunk ${data.sequence_number}`, 'info');
+                        } 
+                        else if (data.type === 'error') {
+                            log(`WebSocket error: ${data.error_message}`, 'error');
                         }
                     } catch (error) {
-                        addLog(`Error parsing WebSocket message: ${error.message}`, 'error');
+                        log(`Error parsing WebSocket message: ${error.message}`, 'error');
                     }
                 };
 
-                websocket.onclose = function(event) {
-                    addLog(`WebSocket closed (${event.code})`, 'websocket');
-                    updateStatus('wsStatus', false);
-                    resetWebSocketUI();
+                websocket.onclose = (event) => {
+                    log(`WebSocket closed: ${event.code}`);
+                    document.getElementById('systemStatus').classList.remove('connected');
                 };
 
-                websocket.onerror = function(error) {
-                    addLog('WebSocket error', 'error');
+                websocket.onerror = () => {
+                    log('WebSocket error', 'error');
+                    reject(new Error('WebSocket connection failed'));
                 };
 
-            } catch (error) {
-                addLog(`WebSocket connection failed: ${error.message}`, 'error');
-            }
+                setTimeout(() => reject(new Error('WebSocket timeout')), 10000);
+            });
         }
 
-        function disconnectWebSocket() {
-            if (websocket) {
-                websocket.close();
-                websocket = null;
-            }
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                stopRecording();
-            }
-            resetWebSocketUI();
-        }
-
-        function resetWebSocketUI() {
-            document.getElementById('recordBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = true;
-            document.getElementById('disconnectBtn').disabled = true;
-            document.getElementById('connectBtn').disabled = false;
-            document.getElementById('recordingStatus').textContent = 'Ready to record';
-        }
-
+        // Handle transcript updates
         function handleTranscriptUpdate(data) {
-            // Check for race condition (out-of-order responses)
+            log(`Transcript update: sequence ${data.sequence_number}`);
+            
+            // Check race condition
             if (data.sequence_number !== expectedSequence) {
                 raceConditionDetected = true;
-                addLog(`🚨 RACE CONDITION DETECTED! Expected sequence ${expectedSequence}, got ${data.sequence_number}`, 'error');
-                
-                const indicator = document.getElementById('raceIndicator');
-                indicator.textContent = `🚨 RACE CONDITION DETECTED! Out-of-order: expected ${expectedSequence}, got ${data.sequence_number}`;
-                indicator.className = 'race-condition-indicator detected';
+                log(`🚨 RACE CONDITION! Expected ${expectedSequence}, got ${data.sequence_number}`, 'error');
             } else {
                 expectedSequence++;
-                addLog(`✅ Sequence ${data.sequence_number} arrived correctly`, 'success');
+                log(`✅ Sequence ${data.sequence_number} correct`, 'success');
             }
 
-            // Update transcript
+            // Update transcript display
             const transcriptBox = document.getElementById('transcript');
             transcriptBox.textContent = data.full_transcript;
             transcriptBox.classList.remove('empty');
             
-            // Update chunk timeline
-            addChunkToTimeline(data.sequence_number, 'completed');
-            
-            // Update stats
-            processingTimes.push(data.processing_time_ms);
-            const avgTime = Math.round(processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length);
-            document.getElementById('avgProcessTime').textContent = avgTime;
-            
+            // Update word count
             const wordCount = data.full_transcript.split(' ').filter(w => w.length > 0).length;
-            document.getElementById('totalWords').textContent = wordCount;
+            document.getElementById('wordCount').textContent = wordCount;
             
-            addLog(`Transcript chunk ${data.sequence_number} (${data.processing_time_ms}ms): "${data.partial_transcript}"`, 'success');
+            log(`Transcript: "${data.partial_transcript}"`, 'success');
         }
 
-        // Audio Recording
+        // Start recording
         async function startRecording() {
             try {
-                addLog(`Starting recording in ${testMode} mode...`, 'info');
+                log('Starting recording...');
                 
                 audioStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
@@ -855,13 +374,13 @@
 
                 let audioChunks = [];
 
-                mediaRecorder.ondataavailable = function(event) {
+                mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
                         audioChunks.push(event.data);
                     }
                 };
 
-                mediaRecorder.onstop = function() {
+                mediaRecorder.onstop = () => {
                     if (audioChunks.length > 0) {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         sendAudioChunk(audioBlob);
@@ -869,74 +388,42 @@
                     }
                 };
 
-                // Different recording patterns based on test mode
-                let chunkInterval;
-                if (testMode === 'race') {
-                    // Race condition test: 2-second chunks sent rapidly
-                    mediaRecorder.start();
-                    chunkInterval = setInterval(() => {
-                        if (mediaRecorder && mediaRecorder.state === 'recording') {
-                            mediaRecorder.stop();
-                            setTimeout(() => {
-                                if (mediaRecorder) {
-                                    audioChunks = [];
-                                    mediaRecorder.start();
-                                }
-                            }, 50); // Very short gap to create concurrency
-                        }
-                    }, 2000);
-                } else if (testMode === 'stress') {
-                    // Stress test: 1-second chunks
-                    mediaRecorder.start();
-                    chunkInterval = setInterval(() => {
-                        if (mediaRecorder && mediaRecorder.state === 'recording') {
-                            mediaRecorder.stop();
-                            setTimeout(() => {
-                                if (mediaRecorder) {
-                                    audioChunks = [];
-                                    mediaRecorder.start();
-                                }
-                            }, 10); // Minimal gap
-                        }
-                    }, 1000);
-                } else {
-                    // Normal mode: 8-second chunks
-                    mediaRecorder.start();
-                    chunkInterval = setInterval(() => {
-                        if (mediaRecorder && mediaRecorder.state === 'recording') {
-                            mediaRecorder.stop();
-                            setTimeout(() => {
-                                if (mediaRecorder) {
-                                    audioChunks = [];
-                                    mediaRecorder.start();
-                                }
-                            }, 100);
-                        }
-                    }, 8000);
-                }
+                // 8-second chunks
+                mediaRecorder.start();
+                const interval = setInterval(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                        setTimeout(() => {
+                            if (mediaRecorder) {
+                                audioChunks = [];
+                                mediaRecorder.start();
+                            }
+                        }, 100);
+                    }
+                }, 8000);
 
-                mediaRecorder.chunkInterval = chunkInterval;
+                mediaRecorder.interval = interval;
 
-                addLog('Recording started', 'success');
-                document.getElementById('recordingStatus').innerHTML = '<span class="recording-pulse"></span>Recording...';
+                document.getElementById('recordStatus').textContent = 'Recording...';
                 document.getElementById('recordBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
+                
+                log('Recording started', 'success');
 
             } catch (error) {
-                addLog(`Recording failed: ${error.message}`, 'error');
+                log(`Recording failed: ${error.message}`, 'error');
             }
         }
 
+        // Stop recording
         function stopRecording() {
             if (mediaRecorder) {
-                if (mediaRecorder.chunkInterval) {
-                    clearInterval(mediaRecorder.chunkInterval);
+                if (mediaRecorder.interval) {
+                    clearInterval(mediaRecorder.interval);
                 }
-                
                 if (mediaRecorder.state === 'recording') {
                     mediaRecorder.stop();
                 }
-                
                 mediaRecorder = null;
             }
 
@@ -945,178 +432,99 @@
                 audioStream = null;
             }
 
-            addLog('Recording stopped', 'info');
-            document.getElementById('recordingStatus').textContent = 'Ready to record';
+            document.getElementById('recordStatus').textContent = 'Ready';
             document.getElementById('recordBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
+            
+            log('Recording stopped');
         }
 
-        // Send audio chunk with NO ARTIFICIAL DELAYS - critical for race condition testing
+        // Send audio chunk
         async function sendAudioChunk(audioBlob) {
             if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                addLog('WebSocket not connected', 'error');
+                log('WebSocket not connected', 'error');
                 return;
             }
 
             try {
                 const arrayBuffer = await audioBlob.arrayBuffer();
-                const currentSeq = sequenceNumber;
-                
-                // Add to timeline immediately
-                addChunkToTimeline(currentSeq, 'sent');
+                const seq = sequenceNumber++;
                 
                 // Send metadata
                 const metadata = {
                     type: 'audio_chunk_metadata',
-                    sequence_number: currentSeq,
+                    sequence_number: seq,
                     chunk_size_bytes: arrayBuffer.byteLength,
-                    duration_seconds: testMode === 'race' ? 2.0 : (testMode === 'stress' ? 1.0 : 8.0)
+                    duration_seconds: 8.0
                 };
 
                 websocket.send(JSON.stringify(metadata));
-                
-                // Send binary data immediately - NO setTimeout delay!
                 websocket.send(arrayBuffer);
                 
-                sequenceNumber++;
                 document.getElementById('chunkCount').textContent = sequenceNumber;
-                
-                // Update timeline to processing
-                setTimeout(() => addChunkToTimeline(currentSeq, 'processing'), 50);
-                
-                addLog(`Sent chunk #${currentSeq} (${arrayBuffer.byteLength} bytes) - ${testMode} mode`, 'info');
+                log(`Sent chunk ${seq} (${arrayBuffer.byteLength} bytes)`);
 
             } catch (error) {
-                addLog(`Error sending chunk: ${error.message}`, 'error');
-                addChunkToTimeline(sequenceNumber - 1, 'error');
+                log(`Error sending chunk: ${error.message}`, 'error');
             }
         }
 
-        // Send test chunk without recording
-        async function sendTestChunk() {
+        // Send test chunk
+        function sendTestChunk() {
             if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                addLog('WebSocket not connected', 'error');
+                log('WebSocket not connected', 'error');
                 return;
             }
 
-            // Generate fake audio data for testing
-            const fakeAudioSize = 50000 + Math.random() * 100000; // Variable size
-            const fakeAudioData = new ArrayBuffer(fakeAudioSize);
-            
-            const currentSeq = sequenceNumber;
-            addChunkToTimeline(currentSeq, 'sent');
+            const seq = sequenceNumber++;
+            const fakeAudioSize = 50000 + Math.random() * 50000;
+            const fakeAudio = new ArrayBuffer(fakeAudioSize);
             
             const metadata = {
                 type: 'audio_chunk_metadata',
-                sequence_number: currentSeq,
+                sequence_number: seq,
                 chunk_size_bytes: fakeAudioSize,
                 duration_seconds: 8.0
             };
 
             websocket.send(JSON.stringify(metadata));
-            websocket.send(fakeAudioData);
+            websocket.send(fakeAudio);
             
-            sequenceNumber++;
             document.getElementById('chunkCount').textContent = sequenceNumber;
-            setTimeout(() => addChunkToTimeline(currentSeq, 'processing'), 50);
-            
-            addLog(`Sent test chunk #${currentSeq} (${fakeAudioSize} bytes)`, 'info');
+            log(`Sent test chunk ${seq}`);
         }
 
-        // Complete initialization
-        async function initializeSystem() {
-            addLog('Initializing system...', 'info');
-            
-            // Reset all state
-            sequenceNumber = 0;
-            expectedSequence = 0;
-            processingTimes = [];
-            wsMessageCount = 0;
-            raceConditionDetected = false;
-            
-            // Reset UI
-            document.getElementById('chunkCount').textContent = '0';
-            document.getElementById('avgProcessTime').textContent = '0';
-            document.getElementById('totalWords').textContent = '0';
-            document.getElementById('errorCount').textContent = '0';
-            document.getElementById('wsMessages').textContent = '0';
-            document.getElementById('chunkTimeline').innerHTML = '';
-            
-            const transcriptBox = document.getElementById('transcript');
-            transcriptBox.textContent = 'Start recording to see transcript appear here...';
-            transcriptBox.classList.add('empty');
-            
-            // Auto-fill test data
-            const now = new Date();
-            document.getElementById('patientName').value = `Test Patient ${now.getHours()}:${now.getMinutes()}`;
-            
-            // Start the flow
-            await createSession();
-            if (currentSessionId) {
-                await startTranscription();
-                if (transcriptionSessionId) {
-                    connectWebSocket();
+        // Test race condition
+        async function testRaceCondition() {
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                await initSystem();
+                if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                    log('Failed to initialize for race test', 'error');
+                    return;
                 }
             }
-        }
 
-        // Stress test - sends multiple rapid chunks
-        async function runStressTest() {
-            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                addLog('Connect WebSocket first', 'error');
-                return;
-            }
-
-            addLog('🚀 Starting stress test - sending 5 rapid chunks...', 'warning');
+            log('🚀 Testing race conditions...', 'success');
+            raceConditionDetected = false;
             
-            const raceIndicator = document.getElementById('raceIndicator');
-            raceIndicator.textContent = '🚀 Stress test running - monitoring for race conditions...';
-            raceIndicator.className = 'race-condition-indicator';
-            
-            // Send 5 chunks rapidly to test concurrency
-            for (let i = 0; i < 5; i++) {
-                setTimeout(() => {
-                    sendTestChunk();
-                }, i * 200); // 200ms apart - likely to cause race conditions
+            // Send 3 chunks rapidly
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => sendTestChunk(), i * 500);
             }
             
-            // Check results after expected processing time
+            // Check results
             setTimeout(() => {
-                if (!raceConditionDetected) {
-                    addLog('✅ Stress test PASSED - no race conditions detected!', 'success');
-                    raceIndicator.textContent = '✅ Stress test PASSED - proper sequence ordering maintained';
-                    raceIndicator.className = 'race-condition-indicator passed';
+                if (raceConditionDetected) {
+                    log('❌ Race condition test FAILED', 'error');
                 } else {
-                    addLog('❌ Stress test FAILED - race condition detected', 'error');
+                    log('✅ Race condition test PASSED', 'success');
                 }
             }, 15000);
         }
 
-        // Error simulation
-        function simulateError() {
-            if (websocket) {
-                // Send malformed message
-                websocket.send('{"type":"invalid","malformed":true');
-                addLog('Sent malformed message to test error handling', 'warning');
-            }
-        }
-
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            addLog('Medical Transcription Test Client loaded', 'info');
-            addLog('Use Initialize System to start, or test individual components', 'info');
-            addLog('Use Race Test mode to detect concurrency bugs', 'warning');
-            
-            // Set up error test mode button
-            document.getElementById('modeError').addEventListener('click', function() {
-                setTimeout(() => {
-                    const errorBtn = document.createElement('button');
-                    errorBtn.className = 'btn small warning';
-                    errorBtn.textContent = '💥 Simulate Error';
-                    errorBtn.onclick = simulateError;
-                    this.appendChild(errorBtn);
-                }, 100);
-            });
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', () => {
+            log('Client loaded - click Initialize System to start');
         });
     </script>
 </body>
