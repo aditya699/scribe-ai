@@ -17,8 +17,8 @@ class TranscriptionStatus(str, Enum):
     """Real-time transcription session status"""
     starting = "starting"           # Session initiated, waiting for first audio
     streaming = "streaming"         # Actively receiving and processing audio chunks  
-    ending = "ending"              # Doctor clicked end, finalizing transcription
-    completed = "completed"        # Final transcript ready
+    ending = "ending"              # Doctor clicked end, draining background tasks
+    completed = "completed"        # Final transcript ready, all tasks finished
     failed = "failed"             # Technical failure in processing
 
 

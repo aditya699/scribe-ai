@@ -106,7 +106,8 @@ async def start_transcription_session(session_id: str) -> TranscriptionSession:
 
 async def end_transcription_session(transcription_session_id: str) -> None:
     """
-    End a transcription session.
+    Begin ending a transcription session.
+    Sets status to 'ending' to allow background tasks to complete.
     
     Args:
         transcription_session_id: The transcription session to end
@@ -128,26 +129,26 @@ async def end_transcription_session(transcription_session_id: str) -> None:
         if not session:
             raise ValueError(f"Transcription session {transcription_session_id} not found")
         
-        if session["status"] in ["completed", "failed"]:
+        if session["status"] in ["ending", "completed", "failed"]:
             raise ValueError(f"Transcription session {transcription_session_id} already ended")
         
-        # 2. Update session to completed status
+        # 2. Update session to ending status (not completed yet)
         from datetime import datetime, timezone
         
         update_result = await transcription_collection.update_one(
             {"transcription_session_id": transcription_session_id},
             {
                 "$set": {
-                    "status": "completed",
-                    "ended_at": datetime.now(timezone.utc)
+                    "status": "ending",  # Changed from "completed" to "ending"
+                    "ending_started_at": datetime.now(timezone.utc)  # Track when ending began
                 }
             }
         )
         
         if update_result.modified_count == 0:
-            raise Exception("Failed to update transcription session status")
+            raise Exception("Failed to update transcription session status to ending")
         
-        # Session ended successfully
+        # Note: Background tasks will complete and then mark as "completed"
         return
         
     except ValueError:
@@ -813,24 +814,86 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
             break
 
 
-def create_task_cleanup_callback(active_tasks: dict, sequence_number: int):
+async def check_and_complete_session(transcription_session_id: str, active_tasks: dict) -> None:
     """
-    Create a callback function that removes completed tasks from active_tasks dictionary.
-    This prevents memory leaks during long WebSocket sessions.
+    Check if session is ending and all background tasks are complete.
+    If so, transition status from 'ending' to 'completed'.
+    
+    Args:
+        transcription_session_id: The transcription session to check
+        active_tasks: Dictionary of currently active background tasks
+    """
+    try:
+        db = await get_db()
+        transcription_collection = db["transcription_sessions"]
+        
+        # Get current session status
+        session = await transcription_collection.find_one(
+            {"transcription_session_id": transcription_session_id},
+            {"_id": 0, "status": 1}
+        )
+        
+        if not session or session["status"] != "ending":
+            # Only check completion for sessions in "ending" status
+            return
+        
+        # Check if any background tasks are still running
+        running_tasks = [task for task in active_tasks.values() if not task.done()]
+        
+        if len(running_tasks) == 0:
+            # All background tasks completed - mark session as completed
+            from datetime import datetime, timezone
+            
+            update_result = await transcription_collection.update_one(
+                {"transcription_session_id": transcription_session_id},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "ended_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+            
+            if update_result.modified_count > 0:
+                print(f"✅ Session {transcription_session_id} marked as completed - all tasks finished")
+            else:
+                print(f"⚠️ Failed to mark session {transcription_session_id} as completed")
+        else:
+            print(f"⏳ Session {transcription_session_id} still ending - {len(running_tasks)} tasks remaining")
+            
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="transcription/utils.py - check_and_complete_session",
+            additional_info={
+                "transcription_session_id": transcription_session_id,
+                "active_task_count": len(active_tasks)
+            }
+        )
+
+
+def create_task_cleanup_callback(active_tasks: dict, sequence_number: int, transcription_session_id: str):
+    """
+    Create a callback function that removes completed tasks and checks for session completion.
     
     Args:
         active_tasks: Dictionary storing background task references
         sequence_number: The sequence number of the task to remove
+        transcription_session_id: Session ID for completion checking
         
     Returns:
         Callback function to be attached to the task
     """
     def cleanup_callback(task):
-        """Remove completed task from active_tasks to prevent memory leak"""
+        """Remove completed task and check if session can be completed"""
         try:
             # Remove the completed task from tracking dictionary
             active_tasks.pop(sequence_number, None)
             print(f"🧹 Cleaned up completed task for chunk {sequence_number}")
+            
+            # Check if this was the last task for an ending session
+            asyncio.create_task(check_and_complete_session(transcription_session_id, active_tasks))
+            
         except Exception as e:
             # Don't let cleanup errors crash anything
             print(f"⚠️ Warning: Failed to cleanup task {sequence_number}: {e}")

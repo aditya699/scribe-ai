@@ -171,9 +171,45 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                             await websocket.send_text(json.dumps(error_response))
                         
                 elif "bytes" in message:
-                    # Binary message (audio data) - VALIDATE SEQUENCE FIRST
-                    audio_data = message["bytes"]
+                    # Binary message (audio data) - CHECK SESSION STATUS FIRST
                     import json
+                    from app.database.mongo import get_db
+
+                    # Verify session is still accepting audio
+                    db = await get_db()
+                    transcription_collection = db["transcription_sessions"]
+                    session = await transcription_collection.find_one(
+                        {"transcription_session_id": transcription_session_id},
+                        {"_id": 0, "status": 1}
+                    )
+                    
+                    if not session:
+                        error_response = {
+                            "type": "error",
+                            "error_code": "SESSION_NOT_FOUND",
+                            "error_message": f"Transcription session {transcription_session_id} not found",
+                            "sequence_number": expected_sequence
+                        }
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(error_response))
+                        expected_sequence += 1
+                        continue
+                    
+                    # Reject new audio if session is ending or completed
+                    if session["status"] in ["ending", "completed", "failed"]:
+                        error_response = {
+                            "type": "error",
+                            "error_code": "SESSION_ENDING",
+                            "error_message": f"Session status is '{session['status']}', not accepting new audio",
+                            "sequence_number": expected_sequence
+                        }
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(error_response))
+                        expected_sequence += 1
+                        continue
+
+                    # Session is active - proceed with existing validation
+                    audio_data = message["bytes"]
 
                     # Hard check: Verify binary data matches previously sent metadata
                     if expected_sequence not in pending_metadata:
@@ -254,7 +290,7 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                     )
                     
                     # Create and attach cleanup callback to remove task when it completes
-                    cleanup_callback = create_task_cleanup_callback(active_tasks, expected_sequence)
+                    cleanup_callback = create_task_cleanup_callback(active_tasks, expected_sequence, transcription_session_id)
                     task.add_done_callback(cleanup_callback)
                     
                     # Store task reference (will be auto-removed by callback when done)
