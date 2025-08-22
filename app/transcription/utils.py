@@ -13,18 +13,21 @@ TRANSCRIPTION_WORKER_POOL = asyncio.Semaphore(5)  # ← HERE IS THE SEMAPHORE
 def is_websocket_open(websocket) -> bool:
     """
     Check if WebSocket connection is still open and ready to send messages.
+    Checks both client and application states to prevent double-close scenarios.
     
     Args:
         websocket: FastAPI WebSocket connection object
         
     Returns:
-        bool: True if WebSocket is open, False otherwise
+        bool: True if WebSocket is fully open, False otherwise
     """
     try:
         from starlette.websockets import WebSocketState
         return (
             hasattr(websocket, 'client_state') and 
-            websocket.client_state == WebSocketState.CONNECTED
+            hasattr(websocket, 'application_state') and
+            websocket.client_state == WebSocketState.CONNECTED and
+            websocket.application_state == WebSocketState.CONNECTED
         )
     except Exception:
         return False
@@ -712,25 +715,22 @@ async def process_audio_chunk_background(response_buffer: dict, next_sequence_to
                 "audio_size_bytes": len(audio_data)
             }
         )
-        
-        # 🔒 CHECK WEBSOCKET STATE BEFORE SENDING ERROR
-        if is_websocket_open(websocket):
-            try:
-                from .schemas import WebSocketError
-                error_response = WebSocketError(
-                    error_code="PROCESSING_ERROR",
-                    error_message=f"Failed to process audio chunk {sequence_number}",
-                    sequence_number=sequence_number
-                )
-                
-                await websocket.send_text(error_response.model_dump_json())
-            except Exception as send_error:
-                # If sending error message fails, just log it - don't crash
-                await log_error(
-                    error=send_error,
-                    location="transcription/utils.py - process_audio_chunk_background - error_send",
-                    additional_info={"original_error": str(e)}
-                )
+
+        # 🔒 CRITICAL: Insert error into buffer instead of immediate send
+        async with buffer_lock:
+            # Create error response for this sequence
+            from .schemas import WebSocketError
+            error_response = WebSocketError(
+                error_code="PROCESSING_ERROR",
+                error_message=f"Failed to process audio chunk {sequence_number}",
+                sequence_number=sequence_number
+            )
+            
+            # Insert error into buffer like any other response
+            response_buffer[sequence_number] = error_response.model_dump()
+            
+            # Send buffered responses in correct sequence order
+            await send_buffered_responses(response_buffer, next_sequence_to_send, websocket)
 
 
 async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequence_to_send: list, websocket, transcription_session_id: str, sequence_number: int, audio_data: bytes, buffer_lock: asyncio.Lock):
@@ -811,3 +811,28 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
             # Clear buffer to prevent endless retry loop
             response_buffer.clear()
             break
+
+
+def create_task_cleanup_callback(active_tasks: dict, sequence_number: int):
+    """
+    Create a callback function that removes completed tasks from active_tasks dictionary.
+    This prevents memory leaks during long WebSocket sessions.
+    
+    Args:
+        active_tasks: Dictionary storing background task references
+        sequence_number: The sequence number of the task to remove
+        
+    Returns:
+        Callback function to be attached to the task
+    """
+    def cleanup_callback(task):
+        """Remove completed task from active_tasks to prevent memory leak"""
+        try:
+            # Remove the completed task from tracking dictionary
+            active_tasks.pop(sequence_number, None)
+            print(f"🧹 Cleaned up completed task for chunk {sequence_number}")
+        except Exception as e:
+            # Don't let cleanup errors crash anything
+            print(f"⚠️ Warning: Failed to cleanup task {sequence_number}: {e}")
+    
+    return cleanup_callback

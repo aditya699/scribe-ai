@@ -1,9 +1,9 @@
 """
 Author: Aditya Bhatt
 """
-from fastapi import APIRouter, HTTPException, WebSocket, status, Response
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status, Response
 from .schemas import StartTranscriptionRequest, StartTranscriptionResponse, EndTranscriptionRequest, EndTranscriptionResponse, AudioChunkMetadata, TranscriptUpdate, WebSocketError, ConnectionConfirmed
-from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore, is_websocket_open    
+from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore, is_websocket_open  , create_task_cleanup_callback
 from app.database.mongo import log_error
 import asyncio
 
@@ -127,6 +127,9 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
         response_buffer = {}  # Buffer for out-of-order responses
         next_sequence_to_send = [0]  # Mutable reference shared across tasks
         
+        # Add this new tracking for metadata-binary pairing
+        pending_metadata = {}  # Track metadata waiting for corresponding binary data
+
         # CREATE THE LOCK HERE - shared across all background tasks
         buffer_lock = asyncio.Lock()
         
@@ -145,6 +148,14 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                     import json
                     try:
                         json_data = json.loads(message["text"])
+                        
+                        # Check if this is audio chunk metadata
+                        if json_data.get("type") == "audio_chunk_metadata":
+                            # Store metadata for later verification
+                            metadata_seq = json_data.get("sequence_number")
+                            if metadata_seq is not None:
+                                pending_metadata[metadata_seq] = json_data
+                                print(f"📋 Stored metadata for sequence {metadata_seq}")
                         response = await process_websocket_message(transcription_session_id, json_data)
                         # 🔒 CHECK STATE BEFORE SENDING RESPONSE
                         if is_websocket_open(websocket):
@@ -160,12 +171,76 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                             await websocket.send_text(json.dumps(error_response))
                         
                 elif "bytes" in message:
-                    # Binary message (audio data) - START BACKGROUND TASK INSTEAD OF BLOCKING
+                    # Binary message (audio data) - VALIDATE SEQUENCE FIRST
                     audio_data = message["bytes"]
+                    import json
+
+                    # Hard check: Verify binary data matches previously sent metadata
+                    if expected_sequence not in pending_metadata:
+                        # Fail fast - no metadata received for this sequence
+                        error_response = {
+                            "type": "error",
+                            "error_code": "MISSING_METADATA",
+                            "error_message": f"No metadata received for audio chunk sequence {expected_sequence}",
+                            "sequence_number": expected_sequence
+                        }
+                        
+                        # 🔒 CHECK STATE BEFORE SENDING ERROR
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(error_response))
+                        
+                        # Skip processing this unverified chunk
+                        expected_sequence += 1
+                        continue
+
+                    # Get the metadata for verification
+                    metadata = pending_metadata[expected_sequence]
+                    advertised_size = metadata.get("chunk_size_bytes", 0)
                     
-                    print(f"📦 Received audio chunk {expected_sequence} ({len(audio_data)} bytes)")
+                    # Verify binary size matches metadata size
+                    if len(audio_data) != advertised_size:
+                        error_response = {
+                            "type": "error", 
+                            "error_code": "SIZE_MISMATCH",
+                            "error_message": f"Binary chunk size {len(audio_data)} bytes doesn't match metadata size {advertised_size} bytes",
+                            "sequence_number": expected_sequence
+                        }
+                        
+                        # 🔒 CHECK STATE BEFORE SENDING ERROR
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(error_response))
+                        
+                        # Remove invalid metadata and skip processing
+                        del pending_metadata[expected_sequence]
+                        expected_sequence += 1
+                        continue
+
+                    # Hard check: Enforce advertised chunk size limit (1MB)
+                    MAX_CHUNK_SIZE_BYTES = 1048576  # 1MB as advertised in ConnectionConfirmed
+                    if len(audio_data) > MAX_CHUNK_SIZE_BYTES:
+                        # Fail fast with error envelope
+                        error_response = {
+                            "type": "error",
+                            "error_code": "CHUNK_TOO_LARGE", 
+                            "error_message": f"Audio chunk size {len(audio_data)} bytes exceeds maximum {MAX_CHUNK_SIZE_BYTES} bytes",
+                            "sequence_number": expected_sequence
+                        }
+                        
+                        # 🔒 CHECK STATE BEFORE SENDING ERROR
+                        if is_websocket_open(websocket):
+                            await websocket.send_text(json.dumps(error_response))
+                        
+                        # Remove metadata and skip processing this oversized chunk
+                        del pending_metadata[expected_sequence]
+                        expected_sequence += 1
+                        continue
                     
-                    # Create background task with semaphore control (rate-limited)
+                    print(f"📦 Received audio chunk {expected_sequence} ({len(audio_data)} bytes) - verified against metadata")
+                    
+                    # All validations passed - remove metadata and proceed with processing
+                    del pending_metadata[expected_sequence]
+
+                    # Size/sequence validation passed - proceed with background processing
                     task = asyncio.create_task(
                         process_audio_chunk_with_semaphore(
                             response_buffer,
@@ -178,7 +253,11 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         )
                     )
                     
-                    # Store task reference (cleanup handled in background function)
+                    # Create and attach cleanup callback to remove task when it completes
+                    cleanup_callback = create_task_cleanup_callback(active_tasks, expected_sequence)
+                    task.add_done_callback(cleanup_callback)
+                    
+                    # Store task reference (will be auto-removed by callback when done)
                     active_tasks[expected_sequence] = task
                     expected_sequence += 1  # Increment for next chunk
                     
@@ -192,13 +271,19 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                     # 🔒 CHECK STATE BEFORE SENDING ERROR
                     if is_websocket_open(websocket):
                         await websocket.send_text(json.dumps(error_response))
-            except RuntimeError as e:
-                # Handle starlette disconnect runtime error
-                if "disconnect message has been received" in str(e):
-                    print(f"🔌 WebSocket disconnect detected for session {transcription_session_id}")
-                    break
-                else:
-                    raise
+            except WebSocketDisconnect:
+                # Proper WebSocket disconnect handling
+                print(f"🔌 WebSocket disconnect detected for session {transcription_session_id}")
+                break
+            except Exception as e:
+                # Handle other unexpected errors
+                print(f"❌ Unexpected WebSocket error: {str(e)}")
+                await log_error(
+                    error=e,
+                    location="transcription/routes.py - transcription_websocket - message_loop",
+                    additional_info={"transcription_session_id": transcription_session_id}
+                )
+                break
             
     except ValueError as e:
         # Validation failed - close connection with error
