@@ -3,9 +3,11 @@ Author: Aditya Bhatt
 """
 
 from app.database.mongo import get_db, log_error
-from .schemas import TranscriptionSession, TranscriptionStatus
+from .schemas import TranscriptionSession, TranscriptionStatus, WebSocketError, AudioChunkMetadata, AudioChunk, TranscriptUpdate
 from typing import Optional
 import asyncio
+from datetime import datetime, timezone
+from typing import Dict, Union
 
 TRANSCRIPTION_WORKER_POOL = asyncio.Semaphore(5)  # ← HERE IS THE SEMAPHORE
 
@@ -262,7 +264,7 @@ async def mark_websocket_disconnected(transcription_session_id: str) -> None:
         Exception: For database errors
     """
     try:
-        from datetime import datetime, timezone
+ 
         
         db = await get_db()
         transcription_collection = db["transcription_sessions"]
@@ -276,8 +278,8 @@ async def mark_websocket_disconnected(transcription_session_id: str) -> None:
         if not session:
             return  # Session doesn't exist, nothing to update
         
-        # Prepare update - always mark WebSocket as disconnected
-        update_fields = {
+        # Explicit type hint for mixed value types
+        update_fields: Dict[str, Union[bool, datetime, str]] = {
             "websocket_connected": False,
             "websocket_disconnected_at": datetime.now(timezone.utc)
         }
@@ -301,8 +303,7 @@ async def mark_websocket_disconnected(transcription_session_id: str) -> None:
             location="transcription/utils.py - mark_websocket_disconnected",
             additional_info={"transcription_session_id": transcription_session_id}
         )
-        raise
-
+        raise       
 async def process_websocket_message(transcription_session_id: str, message: dict) -> dict:
     """
     Process incoming WebSocket message from mobile app.
@@ -319,7 +320,6 @@ async def process_websocket_message(transcription_session_id: str, message: dict
         Exception: For processing errors
     """
     try:
-        from .schemas import AudioChunkMetadata, WebSocketError
         import json
         
         # Check message type
@@ -341,14 +341,16 @@ async def process_websocket_message(transcription_session_id: str, message: dict
             if not session:
                 error = WebSocketError(
                     error_code="SESSION_NOT_FOUND",
-                    error_message=f"Transcription session {transcription_session_id} not found"
+                    error_message=f"Transcription session {transcription_session_id} not found",
+                    sequence_number=metadata.sequence_number
                 )
                 return error.model_dump()
             
             if session["status"] not in ["streaming"]:
                 error = WebSocketError(
                     error_code="SESSION_NOT_STREAMING", 
-                    error_message=f"Session status is {session['status']}, not accepting audio"
+                    error_message=f"Session status is {session['status']}, not accepting audio",
+                    sequence_number=metadata.sequence_number
                 )
                 return error.model_dump()
             
@@ -364,7 +366,8 @@ async def process_websocket_message(transcription_session_id: str, message: dict
             # Unknown message type
             error = WebSocketError(
                 error_code="UNKNOWN_MESSAGE_TYPE",
-                error_message=f"Unknown message type: {message_type}"
+                error_message=f"Unknown message type: {message_type}",
+                sequence_number=message.get("sequence_number")
             )
             return error.model_dump()
         
@@ -372,7 +375,8 @@ async def process_websocket_message(transcription_session_id: str, message: dict
         # Invalid message format
         error = WebSocketError(
             error_code="INVALID_MESSAGE_FORMAT",
-            error_message=str(e)
+            error_message=str(e),
+            sequence_number=message.get("sequence_number")
         )
         return error.model_dump()
         
@@ -388,7 +392,8 @@ async def process_websocket_message(transcription_session_id: str, message: dict
         
         error = WebSocketError(
             error_code="PROCESSING_ERROR",
-            error_message="Failed to process message"
+            error_message="Failed to process message",
+            sequence_number=message.get("sequence_number")
         )
         return error.model_dump()
 
@@ -408,7 +413,6 @@ async def process_audio_chunk(transcription_session_id: str, sequence_number: in
         Exception: For storage or processing errors
     """
     try:
-        from .schemas import AudioChunk, WebSocketError
         from app.database.blob import get_blob_client
         import uuid
         
@@ -470,7 +474,8 @@ async def process_audio_chunk(transcription_session_id: str, sequence_number: in
         
         error = WebSocketError(
             error_code="AUDIO_STORAGE_ERROR",
-            error_message="Failed to store audio chunk"
+            error_message="Failed to store audio chunk",
+            sequence_number=sequence_number
         )
         return error.model_dump()
 
@@ -629,7 +634,6 @@ async def process_audio_chunk_complete(transcription_session_id: str, sequence_n
         Exception: For any stage of processing errors
     """
     try:
-        from .schemas import TranscriptUpdate, WebSocketError
         import time
         
         start_time = time.time()
@@ -724,7 +728,6 @@ async def process_audio_chunk_background(response_buffer: dict, next_sequence_to
         # 🔒 CRITICAL: Insert error into buffer instead of immediate send
         async with buffer_lock:
             # Create error response for this sequence
-            from .schemas import WebSocketError
             error_response = WebSocketError(
                 error_code="PROCESSING_ERROR",
                 error_message=f"Failed to process audio chunk {sequence_number}",

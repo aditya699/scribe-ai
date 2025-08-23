@@ -16,7 +16,8 @@ dependencies = [
     "pydantic-settings",
     "openai",
     "jsonschema",
-    "aiohttp"
+    "aiohttp",
+    "black"
 ]
 
 [project.optional-dependencies]
