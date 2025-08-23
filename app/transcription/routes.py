@@ -6,6 +6,7 @@ from .schemas import StartTranscriptionRequest, StartTranscriptionResponse, EndT
 from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore, is_websocket_open  , create_task_cleanup_callback
 from app.database.mongo import log_error
 import asyncio
+import json
 
 router = APIRouter(prefix="/v1/transcription", tags=["transcription"])
 
@@ -145,7 +146,6 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                 
                 if "text" in message:
                     # Text message (JSON metadata)
-                    import json
                     try:
                         json_data = json.loads(message["text"])
                         
@@ -178,7 +178,6 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         
                 elif "bytes" in message:
                     # Binary message (audio data) - CHECK SESSION STATUS FIRST
-                    import json
                     from app.database.mongo import get_db
 
                     # Verify session is still accepting audio
@@ -385,8 +384,10 @@ async def transcription_health_check():
         from app.database.mongo import get_db
         from app.database.blob import get_blob_client
         from app.core.llm import get_openai_client
+        from typing import Dict, Any
         
-        health_status = {
+        # Explicit type hint for static analysis
+        health_status: Dict[str, Any] = {
             "status": "healthy",
             "module": "transcription",
             "checks": {}
@@ -432,8 +433,10 @@ async def transcription_health_check():
             additional_info={}
         )
         
-        return {
+        # Explicit type for error response as well
+        error_response: Dict[str, str] = {
             "status": "unhealthy",
             "module": "transcription", 
             "error": "Health check failed"
         }
+        return error_response
