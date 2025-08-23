@@ -527,11 +527,15 @@ async def transcribe_audio_chunk(transcription_session_id: str, chunk_id: str) -
             # 4. Call OpenAI Transcription API
             openai_client = await get_openai_client()
             
+                    # Let the model auto-detect language
             transcription = await openai_client.audio.transcriptions.create(
-                model="whisper-1",
+                model="gpt-4o-mini-transcribe",
                 file=audio_file,
+                # language parameter omitted = auto-detection
+                temperature=0.0,
+                prompt="Medical consultation"  # Works for both languages
             )
-            
+                        
             return transcription.text.strip()
             
         except Exception as e:
