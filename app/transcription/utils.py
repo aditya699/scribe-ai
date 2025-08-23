@@ -762,8 +762,12 @@ async def process_audio_chunk_with_semaphore(response_buffer: dict, next_sequenc
 
 async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: list, websocket):
     """
-    Send buffered responses in correct sequence order.
+    Send buffered responses in correct sequence order with retry logic.
     Only sends responses when all previous sequences are ready.
+    
+    NEW: Retries failed sends once, then skips only the problematic sequence
+    instead of clearing the entire buffer.
+    
     NOTE: This function must be called within buffer_lock to prevent race conditions.
     
     Args:
@@ -772,46 +776,69 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
         websocket: WebSocket connection to send responses
     """
     import json
+    import asyncio
     
     # Keep sending responses while the next expected sequence is ready
     while next_sequence_to_send[0] in response_buffer:
-        try:
-            # 🔒 CHECK WEBSOCKET STATE BEFORE SENDING
-            if not is_websocket_open(websocket):
-                # WebSocket is closed - stop trying to send and clear buffer
-                await log_error(
-                    error=Exception("WebSocket closed during buffered response send"),
-                    location="transcription/utils.py - send_buffered_responses",
-                    additional_info={"remaining_buffer_size": len(response_buffer)}
-                )
-                response_buffer.clear()  # Clear buffer to prevent memory leak
-                break
-            
-            # Get the response for the next sequence
-            response = response_buffer[next_sequence_to_send[0]]
-            
-            # Send it to mobile app
-            await websocket.send_text(json.dumps(response))
-            
-            # Remove from buffer (already sent)
-            del response_buffer[next_sequence_to_send[0]]
-            
-            # Move to next sequence (update shared state)
-            next_sequence_to_send[0] += 1
-            
-        except Exception as e:
-            # If sending fails, log and stop trying
+        current_sequence = next_sequence_to_send[0]
+        
+        # 🔒 CHECK WEBSOCKET STATE BEFORE SENDING
+        if not is_websocket_open(websocket):
+            # WebSocket is closed - stop trying to send and clear buffer
             await log_error(
-                error=e,
+                error=Exception("WebSocket closed during buffered response send"),
                 location="transcription/utils.py - send_buffered_responses",
                 additional_info={
-                    "sequence_number": next_sequence_to_send[0],
-                    "buffer_size": len(response_buffer)
+                    "remaining_buffer_size": len(response_buffer),
+                    "failed_at_sequence": current_sequence
                 }
             )
-            # Clear buffer to prevent endless retry loop
-            response_buffer.clear()
+            response_buffer.clear()  # Clear buffer to prevent memory leak
             break
+        
+        # Get the response for the current sequence
+        response = response_buffer[current_sequence]
+        
+        # 🔄 FIRST ATTEMPT: Try to send the response
+        send_successful = False
+        try:
+            await websocket.send_text(json.dumps(response))
+            send_successful = True
+            print(f"✅ Sent response for sequence {current_sequence}")
+            
+        except Exception as first_error:
+            print(f"⚠️ First send attempt failed for sequence {current_sequence}: {first_error}")
+            
+            # 🔄 RETRY ATTEMPT: Wait briefly and try once more
+            try:
+                await asyncio.sleep(0.1)  # Brief pause before retry
+                await websocket.send_text(json.dumps(response))
+                send_successful = True
+                print(f"✅ Retry successful for sequence {current_sequence}")
+                
+            except Exception as retry_error:
+                # Both attempts failed - log and skip this sequence only
+                print(f"❌ Both attempts failed for sequence {current_sequence}: {retry_error}")
+                await log_error(
+                    error=retry_error,
+                    location="transcription/utils.py - send_buffered_responses - retry_failed",
+                    additional_info={
+                        "sequence_number": current_sequence,
+                        "first_error": str(first_error),
+                        "retry_error": str(retry_error),
+                        "response_type": response.get("type", "unknown")
+                    }
+                )
+                
+                # ✅ SKIP ONLY THIS SEQUENCE - don't clear entire buffer
+                print(f"⏭️ Skipping sequence {current_sequence}, continuing with next")
+        
+        # Clean up this sequence (whether successful or skipped) and move to next
+        del response_buffer[current_sequence]
+        next_sequence_to_send[0] += 1
+        
+        # If send failed completely, we've logged it and skipped - continue with next sequence
+        # This preserves all other successfully processed responses
 
 
 async def check_and_complete_session(transcription_session_id: str, active_tasks: dict) -> None:

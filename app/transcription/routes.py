@@ -151,6 +151,12 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         
                         # Check if this is audio chunk metadata
                         if json_data.get("type") == "audio_chunk_metadata":
+                            # 🛡️ PREVENT MEMORY LEAK: Cap pending metadata buffer
+                            if len(pending_metadata) >= 100:
+                                print(f"❌ Pending metadata buffer overflow ({len(pending_metadata)} items)")
+                                await websocket.close(code=1013, reason="Too many pending chunks")
+                                break
+                            
                             # Store metadata for later verification
                             metadata_seq = json_data.get("sequence_number")
                             if metadata_seq is not None:
@@ -192,7 +198,6 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         }
                         if is_websocket_open(websocket):
                             await websocket.send_text(json.dumps(error_response))
-                        expected_sequence += 1
                         continue
                     
                     # Reject new audio if session is ending or completed
@@ -205,7 +210,6 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         }
                         if is_websocket_open(websocket):
                             await websocket.send_text(json.dumps(error_response))
-                        expected_sequence += 1
                         continue
 
                     # Session is active - proceed with existing validation
@@ -226,7 +230,6 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                             await websocket.send_text(json.dumps(error_response))
                         
                         # Skip processing this unverified chunk
-                        expected_sequence += 1
                         continue
 
                     # Get the metadata for verification
@@ -248,7 +251,6 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         
                         # Remove invalid metadata and skip processing
                         del pending_metadata[expected_sequence]
-                        expected_sequence += 1
                         continue
 
                     # Hard check: Enforce advertised chunk size limit (1MB)
@@ -268,13 +270,18 @@ async def transcription_websocket(websocket: WebSocket, transcription_session_id
                         
                         # Remove metadata and skip processing this oversized chunk
                         del pending_metadata[expected_sequence]
-                        expected_sequence += 1
                         continue
                     
                     print(f"📦 Received audio chunk {expected_sequence} ({len(audio_data)} bytes) - verified against metadata")
                     
                     # All validations passed - remove metadata and proceed with processing
                     del pending_metadata[expected_sequence]
+
+                    # 🛡️ PREVENT MEMORY LEAK: Cap response buffer before creating new task
+                    if len(response_buffer) >= 100:
+                        print(f"❌ Response buffer overflow ({len(response_buffer)} items)")
+                        await websocket.close(code=1013, reason="Response buffer overflow")
+                        break
 
                     # Size/sequence validation passed - proceed with background processing
                     task = asyncio.create_task(
