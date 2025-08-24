@@ -3,11 +3,15 @@ Author: Aditya Bhatt
 """
 
 from app.database.mongo import get_db, log_error
+from app.notifications.services import get_whatsapp_service
+from app.notifications.schemas import NotificationStatus
+
 from .schemas import TranscriptionSession, TranscriptionStatus, WebSocketError, AudioChunkMetadata, AudioChunk, TranscriptUpdate
 from typing import Optional
 import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Union
+
 
 TRANSCRIPTION_WORKER_POOL = asyncio.Semaphore(5)  # ← HERE IS THE SEMAPHORE
 
@@ -848,6 +852,66 @@ async def send_buffered_responses(response_buffer: dict, next_sequence_to_send: 
         # This preserves all other successfully processed responses
 
 
+async def send_patient_notification(transcription_session_id: str) -> None:
+    """
+    Send WhatsApp notification to patient when transcription completes.
+    
+    Args:
+        transcription_session_id: The transcription session that completed
+    """
+    try:
+        # Get the patient session ID from transcription session
+        db = await get_db()
+        transcription_collection = db["transcription_sessions"]
+        
+        transcription_session = await transcription_collection.find_one(
+            {"transcription_session_id": transcription_session_id},
+            {"_id": 0, "session_id": 1}
+        )
+        
+        if not transcription_session:
+            print(f"⚠️ Transcription session {transcription_session_id} not found")
+            return
+            
+        # Get patient details from session
+        sessions_collection = db["sessions"]
+        patient_session = await sessions_collection.find_one(
+            {"session_id": transcription_session["session_id"]},
+            {"_id": 0, "patient_whatsapp_number": 1, "patient_name": 1}
+        )
+        
+        if not patient_session:
+            print(f"⚠️ Patient session not found")
+            return
+            
+        # Send WhatsApp notification
+        whatsapp_service = await get_whatsapp_service()
+        notification = await whatsapp_service.send_transcription_complete_notification(
+            session_id=transcription_session["session_id"],
+            patient_whatsapp_number=patient_session["patient_whatsapp_number"],
+            patient_name=patient_session["patient_name"]
+        )
+        
+        # Print appropriate outcome based on notification status
+        if notification and getattr(notification, "status", None) == NotificationStatus.failed:
+            print(
+                f"ℹ️ WhatsApp notification not sent (status=failed) for transcription {transcription_session_id}: "
+                f"{getattr(notification, 'error_message', 'unknown reason')}"
+            )
+        else:
+            print(f"✅ WhatsApp notification queued for transcription {transcription_session_id}")
+        
+    except Exception as e:
+        # Log error but don't crash transcription completion
+        await log_error(
+            error=e,
+            location="transcription/utils.py - send_patient_notification",
+            additional_info={"transcription_session_id": transcription_session_id}
+        )
+        print(f"⚠️ Failed to send WhatsApp notification: {str(e)}")
+
+    
+
 async def check_and_complete_session(transcription_session_id: str, active_tasks: dict) -> None:
     """
     Check if session is ending and all background tasks are complete.
@@ -890,6 +954,7 @@ async def check_and_complete_session(transcription_session_id: str, active_tasks
             
             if update_result.modified_count > 0:
                 print(f"✅ Session {transcription_session_id} marked as completed - all tasks finished")
+
             else:
                 print(f"⚠️ Failed to mark session {transcription_session_id} as completed")
         else:

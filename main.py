@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.sessions.routes import router as sessions_router
 from app.transcription.routes import router as transcription_router
+from app.notifications.routes import router as notifications_router
 from app.database.schema_setup import setup_mongodb_schemas
 import uvicorn
 
@@ -27,6 +28,7 @@ app.add_middleware(
 
 app.include_router(sessions_router)
 app.include_router(transcription_router)
+app.include_router(notifications_router)    
 
 @app.get("/")
 async def root():

@@ -2,32 +2,48 @@
 WhatsApp notification services using Twilio API
 Author: Aditya Bhatt
 """
-import os
 from typing import Optional, Dict, Any
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioException
-from aiohttp import ClientSession
+import asyncio
 from app.database.mongo import log_error, get_db
 from .schemas import WhatsAppNotification, NotificationStatus
 from datetime import datetime, timezone
+from app.core.config import settings
 
 
 class TwilioWhatsAppService:
     """Service for sending WhatsApp messages through Twilio API"""
     
-    def __init__(self) -> None:
+    def __init__(self, webhook_base_url: Optional[str] = None) -> None:
         """
         Initialize Twilio WhatsApp service with environment credentials.
+        
+        Args:
+            webhook_base_url: Base URL for status callbacks (e.g., https://abc123.ngrok.io)
+                            If None, will try to get from WEBHOOK_BASE_URL env var
         
         Raises:
             ValueError: If required environment variables are missing
         """
-        self.account_sid: str = os.getenv('TWILIO_ACCOUNT_SID', '')
-        self.auth_token: str = os.getenv('TWILIO_AUTH_TOKEN', '')
-        self.from_number: str = os.getenv('TWILIO_WHATSAPP_FROM', '')
+        self.account_sid: str = settings.TWILIO_ACCOUNT_SID
+        self.auth_token: str = settings.TWILIO_AUTH_TOKEN
+        self.from_number: str = settings.TWILIO_WHATSAPP_FROM
+        self.webhook_base_url: Optional[str] = webhook_base_url or settings.WEBHOOK_BASE_URL
         
         if not all([self.account_sid, self.auth_token, self.from_number]):
             raise ValueError("Missing required Twilio environment variables")
+    
+    def _normalize_whatsapp_number(self, number: str) -> str:
+        """Ensure WhatsApp number has E.164 with +91 default if missing country code."""
+        cleaned = number.strip().replace(" ", "")
+        if cleaned.startswith("+"):
+            return cleaned
+        # If number begins with 0, drop leading zeros
+        while cleaned.startswith("0"):
+            cleaned = cleaned[1:]
+        # Default to India country code
+        return f"+91{cleaned}"
     
     def _create_transcription_complete_message(self, patient_name: str) -> str:
         """
@@ -79,16 +95,20 @@ class TwilioWhatsAppService:
         )
         
         try:
-            # Use async HTTP client with Twilio for truly async operations
-            async with ClientSession() as session:
-                client = Client(self.account_sid, self.auth_token, http_client=session)
-                
-                # Use create_async method for non-blocking API call
-                message = await client.messages.create_async(
-                    from_=self.from_number,
-                    body=message_content,
-                    to=f"whatsapp:{patient_whatsapp_number}"
-                )
+            # Build message creation parameters
+            normalized_number = self._normalize_whatsapp_number(patient_whatsapp_number)
+            message_params = {
+                "from_": self.from_number,
+                "body": message_content,
+                "to": f"whatsapp:{normalized_number}"
+            }
+            
+            # Add status callback URL if webhook base URL is provided
+            if self.webhook_base_url:
+                message_params["status_callback"] = f"{self.webhook_base_url}/v1/notifications/twilio/whatsapp/status"
+
+            # Run the synchronous Twilio client call in a thread to avoid blocking
+            message = await asyncio.to_thread(self._send_message_sync, message_params)
             
             # Update notification with Twilio queue confirmation
             notification.status = NotificationStatus.queued  # Not "sent"!
@@ -139,6 +159,11 @@ class TwilioWhatsAppService:
             await self._store_notification(notification)
             raise
     
+    def _send_message_sync(self, message_params: Dict[str, Any]):
+        """Blocking Twilio call executed in a thread via asyncio.to_thread."""
+        client = Client(self.account_sid, self.auth_token)
+        return client.messages.create(**message_params)
+
     async def _store_notification(self, notification: WhatsAppNotification) -> None:
         """
         Store notification record in database.
@@ -246,9 +271,12 @@ async def update_notification_status(
         raise
 
 
-async def get_whatsapp_service() -> TwilioWhatsAppService:
+async def get_whatsapp_service(webhook_base_url: Optional[str] = None) -> TwilioWhatsAppService:
     """
     Factory function to get WhatsApp service instance.
+    
+    Args:
+        webhook_base_url: Base URL for status callbacks (e.g., from ngrok)
     
     Returns:
         TwilioWhatsAppService: Configured service instance
@@ -256,4 +284,4 @@ async def get_whatsapp_service() -> TwilioWhatsAppService:
     Raises:
         ValueError: If Twilio configuration is invalid
     """
-    return TwilioWhatsAppService()
+    return TwilioWhatsAppService(webhook_base_url=webhook_base_url)

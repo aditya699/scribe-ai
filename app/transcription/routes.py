@@ -3,7 +3,7 @@ Author: Aditya Bhatt
 """
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status, Response
 from .schemas import StartTranscriptionRequest, StartTranscriptionResponse, EndTranscriptionRequest, EndTranscriptionResponse, AudioChunkMetadata, TranscriptUpdate, WebSocketError, ConnectionConfirmed
-from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore, is_websocket_open  , create_task_cleanup_callback
+from .utils import start_transcription_session, end_transcription_session, validate_websocket_connection, mark_websocket_connected, mark_websocket_disconnected, process_websocket_message, process_audio_chunk_complete, process_audio_chunk_background, process_audio_chunk_with_semaphore, is_websocket_open  , create_task_cleanup_callback, send_patient_notification
 from app.database.mongo import log_error
 import asyncio
 import json
@@ -67,6 +67,9 @@ async def end_transcription(request: EndTranscriptionRequest):
     try:
         # End the transcription session
         await end_transcription_session(request.transcription_session_id)
+
+        # Send notification to patient
+        await send_patient_notification(request.transcription_session_id)
         
         return EndTranscriptionResponse(
             success=True,
