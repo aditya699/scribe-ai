@@ -4,7 +4,7 @@ Author: Aditya Bhatt
 """
 from typing import Optional, Dict, Any
 from twilio.rest import Client
-from twilio.base.exceptions import TwilioException
+from twilio.base.exceptions import TwilioException, TwilioRestException
 import asyncio
 from app.database.mongo import log_error, get_db
 from .schemas import WhatsAppNotification, NotificationStatus
@@ -29,7 +29,11 @@ class TwilioWhatsAppService:
         self.account_sid: str = settings.TWILIO_ACCOUNT_SID
         self.auth_token: str = settings.TWILIO_AUTH_TOKEN
         self.from_number: str = settings.TWILIO_WHATSAPP_FROM
-        self.webhook_base_url: Optional[str] = webhook_base_url or settings.WEBHOOK_BASE_URL
+        self.webhook_base_url: Optional[str] =settings.WEBHOOK_BASE_URL
+        
+        # Ensure the Twilio WhatsApp sender has the required prefix
+        if self.from_number and not self.from_number.startswith("whatsapp:"):
+            self.from_number = f"whatsapp:{self.from_number}"
         
         if not all([self.account_sid, self.auth_token, self.from_number]):
             raise ValueError("Missing required Twilio environment variables")
@@ -94,6 +98,9 @@ class TwilioWhatsAppService:
             status=NotificationStatus.pending
         )
         
+        # Prepare for error logging in case creation fails early
+        message_params: Dict[str, Any] = {}
+
         try:
             # Build message creation parameters
             normalized_number = self._normalize_whatsapp_number(patient_whatsapp_number)
@@ -120,19 +127,34 @@ class TwilioWhatsAppService:
             
             return notification
             
-        except TwilioException as e:
+        except TwilioRestException as e:
             # Handle Twilio-specific errors
             notification.status = NotificationStatus.failed
             notification.failed_at = datetime.now(timezone.utc)
-            notification.error_message = str(e)
+            # Store concise error for user-facing/debug reads
+            notification.error_message = (
+                f"Twilio error (status={getattr(e, 'status', 'unknown')}, "
+                f"code={getattr(e, 'code', 'unknown')}): {getattr(e, 'msg', str(e))}"
+            )
             
+            # Capture detailed Twilio context for diagnostics
             await log_error(
                 error=e,
                 location="notifications/services.py - send_transcription_complete_notification",
                 additional_info={
                     "session_id": session_id,
                     "patient_whatsapp_number": patient_whatsapp_number,
-                    "twilio_error": str(e)
+                    "twilio_error": str(e),
+                    "twilio_status": getattr(e, "status", None),
+                    "twilio_code": getattr(e, "code", None),
+                    "twilio_more_info": getattr(e, "more_info", None),
+                    "twilio_uri": getattr(e, "uri", None),
+                    "twilio_method": getattr(e, "method", None),
+                    "message_params_preview": {
+                        "from_": message_params.get("from_"),
+                        "to": message_params.get("to"),
+                        "has_status_callback": bool(message_params.get("status_callback"))
+                    }
                 }
             )
             
@@ -140,7 +162,7 @@ class TwilioWhatsAppService:
             await self._store_notification(notification)
             raise
             
-        except Exception as e:
+        except TwilioException as e:
             # Handle other errors
             notification.status = NotificationStatus.failed
             notification.failed_at = datetime.now(timezone.utc)
@@ -151,7 +173,13 @@ class TwilioWhatsAppService:
                 location="notifications/services.py - send_transcription_complete_notification",
                 additional_info={
                     "session_id": session_id,
-                    "patient_whatsapp_number": patient_whatsapp_number
+                    "patient_whatsapp_number": patient_whatsapp_number,
+                    "twilio_generic_error": str(e),
+                    "message_params_preview": {
+                        "from_": message_params.get("from_"),
+                        "to": message_params.get("to"),
+                        "has_status_callback": bool(message_params.get("status_callback"))
+                    }
                 }
             )
             
