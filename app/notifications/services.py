@@ -109,11 +109,6 @@ class TwilioWhatsAppService:
                 "body": message_content,
                 "to": f"whatsapp:{normalized_number}"
             }
-            
-            # Add status callback URL if webhook base URL is provided
-            if self.webhook_base_url:
-                message_params["status_callback"] = f"{self.webhook_base_url}/v1/notifications/twilio/whatsapp/status"
-
             # Run the synchronous Twilio client call in a thread to avoid blocking
             message = await asyncio.to_thread(self._send_message_sync, message_params)
             
