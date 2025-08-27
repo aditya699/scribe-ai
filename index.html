@@ -5,269 +5,150 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Medical Transcription</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
         }
-
         .app {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            max-width: 600px;
-            width: 90%;
-            text-align: center;
+            background: white; border-radius: 20px; padding: 40px; box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 700px; width: 100%; text-align: center;
         }
-
-        .header {
-            margin-bottom: 40px;
+        .header { margin-bottom: 40px; }
+        .title { font-size: 28px; font-weight: 700; color: #2d3748; margin-bottom: 8px; }
+        .subtitle { color: #718096; font-size: 16px; }
+        .patient-info {
+            background: #f0fff4; border: 2px solid #68d391; border-radius: 12px; padding: 16px; margin-bottom: 20px; display: none;
         }
-
-        .title {
-            font-size: 28px;
-            font-weight: 700;
-            color: #2d3748;
-            margin-bottom: 8px;
-        }
-
-        .subtitle {
-            color: #718096;
-            font-size: 16px;
-        }
-
+        .patient-info.visible { display: block; }
+        .patient-name { font-size: 18px; font-weight: 600; color: #2f855a; margin-bottom: 4px; }
+        .patient-phone { font-size: 14px; color: #68d391; }
         .status-card {
-            background: #f7fafc;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 30px;
-            border: 2px solid #e2e8f0;
+            background: #f7fafc; border-radius: 12px; padding: 20px; margin-bottom: 30px; border: 2px solid #e2e8f0;
         }
-
-        .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
+        .status-indicator { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
         .status-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #ef4444;
-            animation: pulse 2s infinite;
+            width: 12px; height: 12px; border-radius: 50%; background: #ef4444; animation: pulse 2s infinite;
         }
-
         .status-dot.ready { background: #10b981; animation: none; }
         .status-dot.recording { background: #f59e0b; }
         .status-dot.processing { background: #3b82f6; }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .controls {
-            margin-bottom: 30px;
-        }
-
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .controls { margin-bottom: 30px; }
         .main-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 16px 32px;
-            border-radius: 50px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            min-width: 200px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;
+            padding: 16px 32px; border-radius: 50px; font-size: 16px; font-weight: 600; cursor: pointer;
+            transition: all 0.3s ease; min-width: 200px;
         }
-
-        .main-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-        }
-
-        .main-button:disabled {
-            background: #cbd5e0;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .main-button.recording {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        }
-
-        .main-button.processing {
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-        }
-
-        .transcript-section {
-            text-align: left;
-            margin-bottom: 20px;
-        }
-
-        .transcript-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .transcript-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .word-count {
-            font-size: 14px;
-            color: #718096;
-            background: #edf2f7;
-            padding: 4px 8px;
-            border-radius: 12px;
-        }
-
+        .main-button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3); }
+        .main-button:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; box-shadow: none; }
+        .main-button.recording { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+        .main-button.processing { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
+        .transcript-section { text-align: left; margin-bottom: 20px; }
+        .transcript-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .transcript-title { font-size: 18px; font-weight: 600; color: #2d3748; }
+        .word-count { font-size: 14px; color: #718096; background: #edf2f7; padding: 4px 8px; border-radius: 12px; }
         .transcript-box {
-            background: #f7fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 20px;
-            min-height: 120px;
-            font-size: 16px;
-            line-height: 1.6;
-            color: #2d3748;
-            transition: all 0.3s ease;
+            background: #f7fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; min-height: 120px;
+            font-size: 16px; line-height: 1.6; color: #2d3748; transition: all 0.3s ease; max-height: 300px; overflow-y: auto;
         }
-
-        .transcript-box.empty {
-            color: #a0aec0;
-            font-style: italic;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .transcript-box:not(.empty) {
-            border-color: #667eea;
-        }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            margin-top: 20px;
-        }
-
-        .stat {
-            text-align: center;
-            padding: 16px;
-            background: #f7fafc;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-        }
-
-        .stat-value {
-            font-size: 20px;
-            font-weight: 700;
-            color: #667eea;
-            margin-bottom: 4px;
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: #718096;
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-
+        .transcript-box.empty { color: #a0aec0; font-style: italic; display: flex; align-items: center; justify-content: center; }
+        .transcript-box:not(.empty) { border-color: #667eea; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 20px; }
+        .stat { text-align: center; padding: 16px; background: #f7fafc; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .stat-value { font-size: 20px; font-weight: 700; color: #667eea; margin-bottom: 4px; }
+        .stat-label { font-size: 12px; color: #718096; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
         .setup {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            max-width: 300px;
+            position: fixed; top: 20px; right: 20px; background: white; padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 320px; min-width: 280px;
         }
-
+        .setup h4 { margin-bottom: 16px; font-size: 16px; color: #2d3748; text-align: center; }
+        .input-group { margin-bottom: 12px; }
+        .input-label {
+            display: block; font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 4px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
         .setup-input {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            margin-bottom: 8px;
-            font-size: 14px;
+            width: 100%; padding: 10px 12px; border: 2px solid #e2e8f0; border-radius: 8px;
+            font-size: 14px; transition: border-color 0.2s ease;
         }
-
+        .setup-input:focus { outline: none; border-color: #667eea; }
+        .setup-input.error { border-color: #ef4444; }
         .setup-button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-            width: 100%;
+            background: #667eea; color: white; border: none; padding: 10px 16px; border-radius: 8px;
+            font-size: 12px; font-weight: 600; cursor: pointer; width: 100%; transition: background-color 0.2s ease;
+            text-transform: uppercase; letter-spacing: 0.5px;
         }
-
+        .setup-button:hover { background: #5a67d8; }
+        .validation-message { font-size: 11px; color: #ef4444; margin-top: 4px; display: none; }
+        .validation-message.visible { display: block; }
         .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 8px;
+            display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%; border-top-color: #fff; animation: spin 1s ease-in-out infinite; margin-right: 8px;
         }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error { background: #fed7d7; color: #c53030; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .success-message {
+            background: #c6f6d5; color: #2f855a; padding: 12px; border-radius: 8px; margin-bottom: 20px;
+            font-size: 14px; display: none;
         }
-
-        .error {
-            background: #fed7d7;
-            color: #c53030;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
+        .success-message.visible { display: block; }
+        @media (max-width: 768px) {
+            .setup { position: relative; top: auto; right: auto; margin-bottom: 20px; max-width: none; }
+            body { flex-direction: column; padding: 10px; }
+            .app { padding: 20px; margin-top: 0; }
+            .stats { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
+    <div class="setup">
+        <h4>Session Configuration</h4>
+        <div class="input-group">
+            <label class="input-label">API URL</label>
+            <input type="text" id="apiUrl" class="setup-input" value="http://localhost:8000" placeholder="http://localhost:8000">
+            <div class="validation-message" id="apiUrlError">Please enter a valid API URL</div>
+        </div>
+        <div class="input-group">
+            <label class="input-label">Doctor ID</label>
+            <input type="text" id="doctorId" class="setup-input" value="dr_test_001" placeholder="dr_test_001">
+            <div class="validation-message" id="doctorIdError">Doctor ID is required</div>
+        </div>
+        <div class="input-group">
+            <label class="input-label">Patient Name</label>
+            <input type="text" id="patientName" class="setup-input" placeholder="Enter patient's full name">
+            <div class="validation-message" id="patientNameError">Patient name is required</div>
+        </div>
+        <div class="input-group">
+            <label class="input-label">Patient WhatsApp</label>
+            <input type="tel" id="patientPhone" class="setup-input" placeholder="+91xxxxxxxxxx">
+            <div class="validation-message" id="patientPhoneError">Valid WhatsApp number is required</div>
+        </div>
+        <button class="setup-button" onclick="resetSystem()">Reset System</button>
+    </div>
+
     <div class="app">
         <div class="header">
-            <h1 class="title">🩺 Medical Transcription</h1>
+            <h1 class="title">Medical Transcription</h1>
             <p class="subtitle">Real-time conversation transcription for medical consultations</p>
+        </div>
+
+        <div class="patient-info" id="patientInfo">
+            <div class="patient-name" id="displayPatientName"></div>
+            <div class="patient-phone" id="displayPatientPhone"></div>
         </div>
 
         <div class="status-card">
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Click Initialize to begin</span>
+                <span id="statusText">Enter patient details and click Initialize</span>
             </div>
             <div id="statusDetails" style="font-size: 14px; color: #718096; margin-top: 4px;"></div>
         </div>
 
         <div id="errorMessage" class="error" style="display: none;"></div>
+        <div id="successMessage" class="success-message"></div>
 
         <div class="controls">
             <button class="main-button" id="mainButton" onclick="handleMainAction()">
@@ -301,29 +182,40 @@
         </div>
     </div>
 
-    <!-- Setup Panel -->
-    <div class="setup">
-        <h4 style="margin-bottom: 12px; font-size: 14px;">Configuration</h4>
-        <input type="text" id="apiUrl" class="setup-input" value="http://localhost:8000" placeholder="API URL">
-        <input type="text" id="doctorId" class="setup-input" value="dr_test_001" placeholder="Doctor ID">
-        <button class="setup-button" onclick="resetSystem()">Reset System</button>
-    </div>
-
     <script>
-        // Application State
         const state = {
-            phase: 'uninitialized', // uninitialized, ready, recording, processing, completed
-            sessionId: null,
-            transcriptionId: null,
-            websocket: null,
-            mediaRecorder: null,
-            audioStream: null,
-            sequenceNumber: 0,
-            startTime: null,
-            processingTimes: []
+            phase: 'uninitialized', sessionId: null, transcriptionId: null, websocket: null,
+            mediaRecorder: null, audioStream: null, sequenceNumber: 0, startTime: null,
+            processingTimes: [], patientInfo: { name: '', phone: '' }
         };
 
-        // UI Updates
+        function validateInputs() {
+            let isValid = true;
+            document.querySelectorAll('.setup-input').forEach(input => input.classList.remove('error'));
+            document.querySelectorAll('.validation-message').forEach(msg => msg.classList.remove('visible'));
+
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            if (!apiUrl || !isValidUrl(apiUrl)) { showFieldError('apiUrl', 'apiUrlError'); isValid = false; }
+
+            const doctorId = document.getElementById('doctorId').value.trim();
+            if (!doctorId) { showFieldError('doctorId', 'doctorIdError'); isValid = false; }
+
+            const patientName = document.getElementById('patientName').value.trim();
+            if (!patientName) { showFieldError('patientName', 'patientNameError'); isValid = false; }
+
+            const patientPhone = document.getElementById('patientPhone').value.trim();
+            if (!patientPhone || !isValidPhoneNumber(patientPhone)) { showFieldError('patientPhone', 'patientPhoneError'); isValid = false; }
+
+            return isValid;
+        }
+
+        function isValidUrl(string) { try { new URL(string); return true; } catch (_) { return false; } }
+        function isValidPhoneNumber(phone) { return /^\+[1-9]\d{1,14}$/.test(phone); }
+        function showFieldError(fieldId, errorId) {
+            document.getElementById(fieldId).classList.add('error');
+            document.getElementById(errorId).classList.add('visible');
+        }
+
         function updateUI() {
             const statusDot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
@@ -331,18 +223,16 @@
             const mainButton = document.getElementById('mainButton');
             const buttonText = document.getElementById('buttonText');
 
-            // Remove all status classes
             statusDot.className = 'status-dot';
             mainButton.className = 'main-button';
 
             switch(state.phase) {
                 case 'uninitialized':
-                    statusText.textContent = 'Click Initialize to begin';
+                    statusText.textContent = 'Enter patient details and click Initialize';
                     statusDetails.textContent = '';
                     buttonText.innerHTML = 'Initialize System';
                     mainButton.disabled = false;
                     break;
-
                 case 'initializing':
                     statusDot.classList.add('processing');
                     statusText.textContent = 'Setting up transcription system...';
@@ -350,15 +240,13 @@
                     buttonText.innerHTML = '<div class="loading"></div>Initializing...';
                     mainButton.disabled = true;
                     break;
-
                 case 'ready':
                     statusDot.classList.add('ready');
                     statusText.textContent = 'Ready to record';
-                    statusDetails.textContent = 'Click Start Recording to begin consultation';
+                    statusDetails.textContent = `Recording for ${state.patientInfo.name} - Click Start Recording`;
                     buttonText.textContent = 'Start Recording';
                     mainButton.disabled = false;
                     break;
-
                 case 'recording':
                     statusDot.classList.add('recording');
                     statusText.textContent = 'Recording conversation...';
@@ -367,53 +255,41 @@
                     mainButton.classList.add('recording');
                     mainButton.disabled = false;
                     break;
-
                 case 'stopping':
                     statusDot.classList.add('processing');
                     statusText.textContent = 'Stopping recording...';
-                    statusDetails.textContent = 'Processing final audio and completing transcript';
+                    statusDetails.textContent = 'Processing final audio and sending WhatsApp notification';
                     buttonText.innerHTML = '<div class="loading"></div>Finalizing...';
                     mainButton.classList.add('processing');
                     mainButton.disabled = true;
                     break;
-
                 case 'completed':
                     statusDot.classList.add('ready');
                     statusText.textContent = 'Transcription completed';
-                    statusDetails.textContent = 'Ready for new session';
+                    statusDetails.textContent = `WhatsApp notification sent to ${state.patientInfo.name}`;
                     buttonText.textContent = 'Start New Session';
                     mainButton.disabled = false;
                     break;
             }
 
-            // Update session timer
             if (state.startTime && state.phase === 'recording') {
                 const duration = Math.floor((Date.now() - state.startTime) / 1000);
                 const minutes = Math.floor(duration / 60);
                 const seconds = duration % 60;
-                document.getElementById('sessionDuration').textContent = 
-                    `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                document.getElementById('sessionDuration').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             }
         }
 
-        // Main Action Handler
         async function handleMainAction() {
             try {
-                clearError();
-                
+                clearMessages();
                 switch(state.phase) {
                     case 'uninitialized':
-                        await initializeSystem();
-                        break;
-                    case 'ready':
-                        await startRecording();
-                        break;
-                    case 'recording':
-                        await stopRecording();
-                        break;
-                    case 'completed':
-                        await resetSystem();
-                        break;
+                        if (!validateInputs()) { showError('Please fix the validation errors above'); return; }
+                        await initializeSystem(); break;
+                    case 'ready': await startRecording(); break;
+                    case 'recording': await stopRecording(); break;
+                    case 'completed': await resetSystem(); break;
                 }
             } catch (error) {
                 showError(error.message);
@@ -421,28 +297,29 @@
             }
         }
 
-        // Initialize System
         async function initializeSystem() {
             state.phase = 'initializing';
             updateUI();
 
             try {
-                // Reset counters
+                state.patientInfo = {
+                    name: document.getElementById('patientName').value.trim(),
+                    phone: document.getElementById('patientPhone').value.trim()
+                };
+
+                document.getElementById('displayPatientName').textContent = state.patientInfo.name;
+                document.getElementById('displayPatientPhone').textContent = state.patientInfo.phone;
+                document.getElementById('patientInfo').classList.add('visible');
+
                 state.sequenceNumber = 0;
                 state.processingTimes = [];
 
-                // Create session
                 await createSession();
-                
-                // Start transcription
                 await startTranscription();
-                
-                // Connect WebSocket
                 await connectWebSocket();
                 
                 state.phase = 'ready';
                 updateUI();
-
             } catch (error) {
                 state.phase = 'uninitialized';
                 updateUI();
@@ -450,141 +327,90 @@
             }
         }
 
-        // Create Session
         async function createSession() {
-            const apiUrl = document.getElementById('apiUrl').value;
-            const doctorId = document.getElementById('doctorId').value;
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const doctorId = document.getElementById('doctorId').value.trim();
             
             const response = await fetch(`${apiUrl}/v1/sessions/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     doctor_id: doctorId,
-                    patient_name: `Patient ${new Date().toLocaleTimeString()}`,
-                    patient_whatsapp_number: "+917303041453"
+                    patient_name: state.patientInfo.name,
+                    patient_whatsapp_number: state.patientInfo.phone
                 })
             });
 
-            if (!response.ok) {
-                throw new Error(`Failed to create session: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Failed to create session: ${response.status}`);
             const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.detail || 'Session creation failed');
-            }
-
+            if (!data.success) throw new Error(data.detail || 'Session creation failed');
             state.sessionId = data.session.session_id;
         }
 
-        // Start Transcription
         async function startTranscription() {
-            const apiUrl = document.getElementById('apiUrl').value;
-            
+            const apiUrl = document.getElementById('apiUrl').value.trim();
             const response = await fetch(`${apiUrl}/v1/transcription/start`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session_id: state.sessionId })
             });
 
-            if (!response.ok) {
-                throw new Error(`Failed to start transcription: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Failed to start transcription: ${response.status}`);
             const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.detail || 'Transcription start failed');
-            }
-
+            if (!data.success) throw new Error(data.detail || 'Transcription start failed');
             state.transcriptionId = data.transcription_session_id;
         }
 
-        // Connect WebSocket
         function connectWebSocket() {
             return new Promise((resolve, reject) => {
-                const apiUrl = document.getElementById('apiUrl').value;
+                const apiUrl = document.getElementById('apiUrl').value.trim();
                 const wsUrl = apiUrl.replace('http://', 'ws://').replace('https://', 'wss://');
-                
                 state.websocket = new WebSocket(`${wsUrl}/v1/transcription/${state.transcriptionId}/stream`);
 
                 state.websocket.onopen = () => resolve();
-
                 state.websocket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        
-                        if (data.type === 'transcript_update') {
-                            handleTranscriptUpdate(data);
-                        } else if (data.type === 'error') {
-                            console.warn('WebSocket error:', data.error_message);
-                        }
-                    } catch (error) {
-                        console.error('Error parsing WebSocket message:', error);
-                    }
+                        if (data.type === 'transcript_update') handleTranscriptUpdate(data);
+                        else if (data.type === 'error') console.warn('WebSocket error:', data.error_message);
+                    } catch (error) { console.error('Error parsing WebSocket message:', error); }
                 };
-
-                state.websocket.onclose = () => {
-                    if (state.phase === 'recording') {
-                        showError('Connection lost during recording');
-                    }
-                };
-
-                state.websocket.onerror = () => {
-                    reject(new Error('WebSocket connection failed'));
-                };
-
+                state.websocket.onclose = () => { if (state.phase === 'recording') showError('Connection lost during recording'); };
+                state.websocket.onerror = () => reject(new Error('WebSocket connection failed'));
                 setTimeout(() => reject(new Error('Connection timeout')), 10000);
             });
         }
 
-        // Handle Transcript Updates
         function handleTranscriptUpdate(data) {
             const transcriptBox = document.getElementById('transcriptBox');
             
             if (data.full_transcript && data.full_transcript.trim()) {
                 transcriptBox.textContent = data.full_transcript;
                 transcriptBox.classList.remove('empty');
+                transcriptBox.scrollTop = transcriptBox.scrollHeight;
                 
-                // Update word count
                 const words = data.full_transcript.trim().split(/\s+/).filter(w => w.length > 0);
                 document.getElementById('wordCount').textContent = `${words.length} words`;
             }
 
-            // Update processing time
             if (data.processing_time_ms) {
                 state.processingTimes.push(data.processing_time_ms);
-                const avgTime = Math.round(
-                    state.processingTimes.reduce((a, b) => a + b, 0) / state.processingTimes.length
-                );
+                const avgTime = Math.round(state.processingTimes.reduce((a, b) => a + b, 0) / state.processingTimes.length);
                 document.getElementById('processingTime').textContent = `${avgTime}ms`;
             }
 
             document.getElementById('chunkCount').textContent = state.sequenceNumber;
         }
 
-        // Start Recording
         async function startRecording() {
             state.audioStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    sampleRate: 16000,
-                    channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true
-                } 
+                audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true } 
             });
 
-            state.mediaRecorder = new MediaRecorder(state.audioStream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
-
+            state.mediaRecorder = new MediaRecorder(state.audioStream, { mimeType: 'audio/webm;codecs=opus' });
             let audioChunks = [];
 
-            state.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                }
-            };
-
+            state.mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunks.push(event.data); };
             state.mediaRecorder.onstop = () => {
                 if (audioChunks.length > 0 && state.phase === 'recording') {
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
@@ -593,7 +419,6 @@
                 }
             };
 
-            // Record in 8-second chunks
             state.mediaRecorder.start();
             const interval = setInterval(() => {
                 if (state.mediaRecorder && state.mediaRecorder.state === 'recording' && state.phase === 'recording') {
@@ -614,29 +439,19 @@
             state.phase = 'recording';
             updateUI();
 
-            // Update timer every second
             const timerInterval = setInterval(() => {
-                if (state.phase === 'recording') {
-                    updateUI();
-                } else {
-                    clearInterval(timerInterval);
-                }
+                if (state.phase === 'recording') updateUI();
+                else clearInterval(timerInterval);
             }, 1000);
         }
 
-        // Stop Recording
         async function stopRecording() {
             state.phase = 'stopping';
             updateUI();
 
-            // Stop recording
             if (state.mediaRecorder) {
-                if (state.mediaRecorder.interval) {
-                    clearInterval(state.mediaRecorder.interval);
-                }
-                if (state.mediaRecorder.state === 'recording') {
-                    state.mediaRecorder.stop();
-                }
+                if (state.mediaRecorder.interval) clearInterval(state.mediaRecorder.interval);
+                if (state.mediaRecorder.state === 'recording') state.mediaRecorder.stop();
                 state.mediaRecorder = null;
             }
 
@@ -645,55 +460,38 @@
                 state.audioStream = null;
             }
 
-            // Wait for final processing
             await new Promise(resolve => setTimeout(resolve, 2000));
 
-            // End transcription session
             try {
-                const apiUrl = document.getElementById('apiUrl').value;
+                const apiUrl = document.getElementById('apiUrl').value.trim();
                 const response = await fetch(`${apiUrl}/v1/transcription/end`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        transcription_session_id: state.transcriptionId 
-                    })
+                    body: JSON.stringify({ transcription_session_id: state.transcriptionId })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`Failed to end transcription: ${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(`Failed to end transcription: ${response.status}`);
                 const data = await response.json();
-                if (!data.success) {
-                    throw new Error(data.detail || 'Failed to end transcription');
-                }
+                if (!data.success) throw new Error(data.detail || 'Failed to end transcription');
 
+                showSuccess(`Transcription completed successfully! WhatsApp notification sent to ${state.patientInfo.name}`);
             } catch (error) {
                 console.warn('Error ending transcription:', error);
-                // Continue anyway - transcript should still be preserved
+                showError('Transcription saved but notification may have failed');
             }
 
-            // Close WebSocket
-            if (state.websocket) {
-                state.websocket.close();
-                state.websocket = null;
-            }
-
+            if (state.websocket) { state.websocket.close(); state.websocket = null; }
             state.phase = 'completed';
             updateUI();
         }
 
-        // Send Audio Chunk
         async function sendAudioChunk(audioBlob) {
-            if (!state.websocket || state.websocket.readyState !== WebSocket.OPEN) {
-                return;
-            }
+            if (!state.websocket || state.websocket.readyState !== WebSocket.OPEN) return;
 
             try {
                 const arrayBuffer = await audioBlob.arrayBuffer();
                 const seq = state.sequenceNumber++;
                 
-                // Send metadata first
                 const metadata = {
                     type: 'audio_chunk_metadata',
                     sequence_number: seq,
@@ -703,36 +501,22 @@
 
                 state.websocket.send(JSON.stringify(metadata));
                 state.websocket.send(arrayBuffer);
-
             } catch (error) {
                 console.error('Error sending audio chunk:', error);
             }
         }
 
-        // Reset System
         async function resetSystem() {
-            // Clean up any existing connections
-            if (state.websocket) {
-                state.websocket.close();
-            }
-            if (state.audioStream) {
-                state.audioStream.getTracks().forEach(track => track.stop());
-            }
+            if (state.websocket) state.websocket.close();
+            if (state.audioStream) state.audioStream.getTracks().forEach(track => track.stop());
 
-            // Reset state
             Object.assign(state, {
-                phase: 'uninitialized',
-                sessionId: null,
-                transcriptionId: null,
-                websocket: null,
-                mediaRecorder: null,
-                audioStream: null,
-                sequenceNumber: 0,
-                startTime: null,
-                processingTimes: []
+                phase: 'uninitialized', sessionId: null, transcriptionId: null, websocket: null,
+                mediaRecorder: null, audioStream: null, sequenceNumber: 0, startTime: null,
+                processingTimes: [], patientInfo: { name: '', phone: '' }
             });
 
-            // Reset UI
+            document.getElementById('patientInfo').classList.remove('visible');
             document.getElementById('transcriptBox').textContent = 'Your conversation will appear here in real-time...';
             document.getElementById('transcriptBox').classList.add('empty');
             document.getElementById('wordCount').textContent = '0 words';
@@ -740,21 +524,43 @@
             document.getElementById('sessionDuration').textContent = '0:00';
             document.getElementById('processingTime').textContent = '0ms';
             
+            clearMessages();
             updateUI();
         }
 
-        // Error Handling
         function showError(message) {
-            const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorMessage').style.display = 'block';
+            document.getElementById('successMessage').classList.remove('visible');
         }
 
-        function clearError() {
+        function showSuccess(message) {
+            document.getElementById('successMessage').textContent = message;
+            document.getElementById('successMessage').classList.add('visible');
             document.getElementById('errorMessage').style.display = 'none';
         }
 
-        // Initialize UI on load
+        function clearMessages() {
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('successMessage').classList.remove('visible');
+        }
+
+        ['patientName', 'doctorId', 'apiUrl'].forEach(id => {
+            document.getElementById(id).addEventListener('input', function() {
+                if (this.value.trim() && (id !== 'apiUrl' || isValidUrl(this.value.trim()))) {
+                    this.classList.remove('error');
+                    document.getElementById(id + 'Error').classList.remove('visible');
+                }
+            });
+        });
+
+        document.getElementById('patientPhone').addEventListener('input', function() {
+            if (isValidPhoneNumber(this.value.trim())) {
+                this.classList.remove('error');
+                document.getElementById('patientPhoneError').classList.remove('visible');
+            }
+        });
+
         updateUI();
     </script>
 </body>
