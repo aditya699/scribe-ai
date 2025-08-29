@@ -241,15 +241,17 @@ async def get_patient_transcripts(session_ids: List[str]) -> List[Dict[str, Any]
 async def generate_rag_response(
     patient_name: str,
     patient_question: str,
-    transcripts: List[Dict[str, Any]]
+    transcripts: List[Dict[str, Any]],
+    patient_whatsapp_number: str
 ) -> str:
     """
-    Generate RAG response using consultation history plus general medical knowledge.
+    Generate RAG response using consultation history and conversation context.
     
     Args:
         patient_name: Patient's name for personalization
         patient_question: Patient's medical query
         transcripts: List of consultation transcripts with metadata
+        patient_whatsapp_number: Patient's WhatsApp number for conversation history
         
     Returns:
         str: Generated response for the patient
@@ -259,6 +261,9 @@ async def generate_rag_response(
     """
     try:
         from app.core.llm import get_openai_client
+        
+        # Get recent conversation history
+        conversation_history = await get_conversation_history(patient_whatsapp_number, limit=8)
         
         # Build consultation context if available
         consultation_context: str = ""
@@ -271,19 +276,28 @@ async def generate_rag_response(
                 )
             consultation_context = f"\n\nPatient's Previous Consultations:\n{'\n\n'.join(context_parts)}"
         
-        # Build input prompt combining question and context
-        input_prompt: str = f"""Patient: {patient_name}
-Question: {patient_question}{consultation_context}
-
-You are a helpful medical AI assistant. Provide helpful medical information and guidance. Reference consultation history when relevant. Always recommend consulting a healthcare provider for serious concerns. Use simple, clear language and be empathetic."""
+        # Build conversation context if available
+        conversation_context: str = ""
+        if conversation_history:
+            conv_parts: List[str] = []
+            for msg in conversation_history:
+                role: str = "Patient" if msg["role"] == "user" else "AI Assistant"
+                conv_parts.append(f"{role}: {msg['content']}")
+            conversation_context = f"\n\nRecent Conversation:\n{'\n'.join(conv_parts)}"
         
+        # Build input prompt with all context
+        input_prompt: str = f"""Patient: {patient_name}
+                Current Question: {patient_question}{consultation_context}{conversation_context}
+
+                You are a helpful medical AI assistant. Provide helpful medical information and guidance. Reference both consultation history and recent conversation when relevant. Always recommend consulting a healthcare provider for serious concerns. Use simple, clear language and be empathetic. Maintain conversation continuity by acknowledging previous exchanges when appropriate."""
+                        
         # Generate response using new Responses API
         openai_client = await get_openai_client()
         
         response = await openai_client.responses.create(
             model="gpt-4.1-mini",
             input=input_prompt,
-            temperature=0
+            temperature=0.1
         )
         
         generated_response: str = response.output_text.strip()
@@ -469,7 +483,8 @@ async def process_rag_pipeline(message_id: str) -> bool:
             ai_response = await generate_rag_response(
                 patient_name=patient_info["patient_name"],
                 patient_question=patient_question,
-                transcripts=transcripts
+                transcripts=transcripts,
+                patient_whatsapp_number=patient_whatsapp_number
             )
         except Exception as e:
             # AI generation failed - store and send error
@@ -571,3 +586,81 @@ async def send_rag_response_to_patient(message_id: str) -> bool:
             additional_info={"message_id": message_id}
         )
         return False
+
+async def get_conversation_history(
+    patient_whatsapp_number: str, 
+    limit: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    Get recent conversation history between patient and AI system.
+    
+    Args:
+        patient_whatsapp_number: Patient's WhatsApp number  
+        limit: Maximum number of recent messages to retrieve
+        
+    Returns:
+        List of recent messages with patient questions and AI responses
+        Format: [{"role": "user", "content": "...", "timestamp": datetime}, ...]
+        
+    Raises:
+        Exception: If database query fails
+    """
+    try:
+        db = await get_db()
+        incoming_messages_collection = db["incoming_whatsapp_messages"]
+        
+        # Get recent completed messages for this patient
+        messages_cursor = incoming_messages_collection.find(
+            {
+                "patient_whatsapp_number": patient_whatsapp_number,
+                "status": {"$in": ["completed", "failed"]},
+                "$or": [
+                    {"ai_response": {"$exists": True, "$ne": None}},
+                    {"error_message": {"$exists": True, "$ne": None}}
+                ]
+            },
+            {
+                "_id": 0,
+                "message_body": 1,
+                "ai_response": 1, 
+                "error_message": 1,
+                "received_at": 1,
+                "response_generated_at": 1
+            }
+        ).sort("received_at", -1).limit(limit)
+        
+        messages = await messages_cursor.to_list(length=None)
+        
+        # Convert to conversation format
+        conversation_history = []
+        
+        for msg in reversed(messages):  # Reverse to get chronological order
+            # Add user message
+            conversation_history.append({
+                "role": "user",
+                "content": msg["message_body"],
+                "timestamp": msg["received_at"]
+            })
+            
+            # Add AI response
+            ai_content = msg.get("ai_response") or msg.get("error_message")
+            if ai_content:
+                conversation_history.append({
+                    "role": "assistant", 
+                    "content": ai_content,
+                    "timestamp": msg.get("response_generated_at") or msg["received_at"]
+                })
+        
+        return conversation_history
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - get_conversation_history",
+            additional_info={
+                "patient_whatsapp_number": patient_whatsapp_number,
+                "limit": limit
+            }
+        )
+        raise
+    
