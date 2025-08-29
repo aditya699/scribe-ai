@@ -516,7 +516,7 @@ async def process_rag_pipeline(message_id: str) -> bool:
 
 async def send_rag_response_to_patient(message_id: str) -> bool:
     """
-    Send stored AI response to patient via WhatsApp.
+    Send stored AI response to patient via WhatsApp using notification service.
     
     Args:
         message_id: ID of the processed message with stored AI response
@@ -528,8 +528,6 @@ async def send_rag_response_to_patient(message_id: str) -> bool:
         Exception: If database operations fail
     """
     try:
-        from app.notifications.services import get_whatsapp_service
-        
         db = await get_db()
         incoming_messages_collection = db["incoming_whatsapp_messages"]
         
@@ -542,10 +540,9 @@ async def send_rag_response_to_patient(message_id: str) -> bool:
         if not message_doc:
             raise Exception(f"Message {message_id} not found")
         
-        # Check if we have an AI response to send
+        # Get response content to send
         ai_response = message_doc.get("ai_response")
         if not ai_response:
-            # Check if we have an error message to send instead
             error_message = message_doc.get("error_message")
             if error_message:
                 ai_response = error_message
@@ -553,28 +550,41 @@ async def send_rag_response_to_patient(message_id: str) -> bool:
                 raise Exception(f"No response or error message found for message {message_id}")
         
         patient_whatsapp_number = message_doc["patient_whatsapp_number"]
+        patient_name = message_doc.get("patient_name", "Patient")
         
-        # Send WhatsApp message
-        whatsapp_service = await get_whatsapp_service()
+        # Use existing notification service for proper tracking
+        from app.notifications.services import TwilioWhatsAppService
+        from app.notifications.schemas import WhatsAppNotification, NotificationStatus
         
-        # Use Twilio's message sending directly (simpler than notification service)
-        from twilio.rest import Client
-        from app.core.config import settings
+        whatsapp_service = TwilioWhatsAppService()
         
-        # Create normalized WhatsApp number
-        normalized_number = patient_whatsapp_number
-        if not normalized_number.startswith("+"):
-            normalized_number = f"+{normalized_number}"
-        
-        # Send via Twilio
-        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        
-        message = await asyncio.to_thread(
-            client.messages.create,
-            from_=settings.TWILIO_WHATSAPP_FROM,
-            body=ai_response,
-            to=f"whatsapp:{normalized_number}"
+        # Create notification record for tracking
+        notification = WhatsAppNotification(
+            session_id="rag-response",  # Use placeholder session ID
+            patient_whatsapp_number=patient_whatsapp_number,
+            patient_name=patient_name,
+            message_content=ai_response,
+            notification_type="rag_response"
         )
+        
+        # Send message using service's internal methods
+        normalized_number = whatsapp_service._normalize_whatsapp_number(patient_whatsapp_number)
+        
+        message_params = {
+            "from_": whatsapp_service.from_number,
+            "body": ai_response,
+            "to": f"whatsapp:{normalized_number}"
+        }
+        
+        # Send message and update notification
+        message = await asyncio.to_thread(whatsapp_service._send_message_sync, message_params)
+        
+        notification.status = NotificationStatus.queued
+        notification.sent_at = datetime.now(timezone.utc)
+        notification.twilio_message_sid = message.sid
+        
+        # Store notification for webhook tracking
+        await whatsapp_service._store_notification(notification)
         
         print(f"Sent RAG response to {patient_whatsapp_number}, Twilio SID: {message.sid}")
         return True
