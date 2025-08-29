@@ -61,18 +61,26 @@ async def handle_incoming_whatsapp_message(request: Request) -> Dict[str, str]:
         # Look up patient information and update message
         patient_found = await lookup_and_update_patient_info(incoming_message.message_id)
         
+        # Process RAG pipeline if patient found
         if patient_found:
-            print(f"✅ Patient found for {patient_whatsapp_number}")
+            try:
+                from .utils import process_rag_pipeline
+                pipeline_success = await process_rag_pipeline(incoming_message.message_id)
+                print(f"RAG pipeline result for {patient_whatsapp_number}: {'success' if pipeline_success else 'failed'}")
+            except Exception as pipeline_error:
+                await log_error(
+                    error=pipeline_error,
+                    location="rag/routes.py - RAG pipeline processing",
+                    additional_info={"message_id": incoming_message.message_id}
+                )
+                print(f"RAG pipeline error for {patient_whatsapp_number}: {str(pipeline_error)}")
         else:
-            print(f"❌ No consultation history found for {patient_whatsapp_number}")
-        
-        # Log successful receipt
-        print(f"📨 Incoming message from {patient_whatsapp_number}: {message_body[:50]}...")
+            print(f"No consultation history found for {patient_whatsapp_number}")
         
         # Return success to Twilio (this prevents Twilio retries)
         return {
             "status": "received",
-            "message": "Incoming message stored successfully"
+            "message": "Incoming message processed successfully"
         }
         
     except HTTPException:

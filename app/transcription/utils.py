@@ -113,7 +113,7 @@ async def start_transcription_session(session_id: str) -> TranscriptionSession:
 async def end_transcription_session(transcription_session_id: str) -> None:
     """
     Begin ending a transcription session.
-    Sets status to 'ending' to allow background tasks to complete.
+    Sets status to 'ending' then checks for immediate completion.
     
     Args:
         transcription_session_id: The transcription session to end
@@ -138,15 +138,15 @@ async def end_transcription_session(transcription_session_id: str) -> None:
         if session["status"] in ["ending", "completed", "failed"]:
             raise ValueError(f"Transcription session {transcription_session_id} already ended")
         
-        # 2. Update session to ending status (not completed yet)
+        # 2. Update session to ending status
         from datetime import datetime, timezone
         
         update_result = await transcription_collection.update_one(
             {"transcription_session_id": transcription_session_id},
             {
                 "$set": {
-                    "status": "ending",  # Changed from "completed" to "ending"
-                    "ending_started_at": datetime.now(timezone.utc)  # Track when ending began
+                    "status": "ending",
+                    "ending_started_at": datetime.now(timezone.utc)
                 }
             }
         )
@@ -154,7 +154,9 @@ async def end_transcription_session(transcription_session_id: str) -> None:
         if update_result.modified_count == 0:
             raise Exception("Failed to update transcription session status to ending")
         
-        # Note: Background tasks will complete and then mark as "completed"
+        # 3. Fix race condition: explicitly check for completion with no active tasks
+        # At this point, WebSocket is disconnected and no background tasks should be running
+        await check_and_complete_session(transcription_session_id, {})
         return
         
     except ValueError:
@@ -922,6 +924,8 @@ async def check_and_complete_session(transcription_session_id: str, active_tasks
         active_tasks: Dictionary of currently active background tasks
     """
     try:
+        print(f"DEBUG: Checking completion for session {transcription_session_id}")
+        print(f"DEBUG: Active tasks count: {len(active_tasks)}")
         db = await get_db()
         transcription_collection = db["transcription_sessions"]
         
@@ -932,9 +936,14 @@ async def check_and_complete_session(transcription_session_id: str, active_tasks
         )
         
         if not session or session["status"] != "ending":
+            print(f"DEBUG: Session not in ending status, skipping")
+
+            print(f"DEBUG: Session {transcription_session_id} not found")
+
             # Only check completion for sessions in "ending" status
             return
-        
+        print(f"DEBUG: Current session status: {session['status']}")
+
         # Check if any background tasks are still running
         running_tasks = [task for task in active_tasks.values() if not task.done()]
         

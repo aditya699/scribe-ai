@@ -3,9 +3,10 @@ RAG module utilities
 Author: Aditya Bhatt
 """
 from app.database.mongo import get_db, log_error
-from typing import Optional, List, Dict, Any
 from app.rag.schemas import IncomingWhatsAppMessage
-
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
+import asyncio
 
 async def find_patient_by_whatsapp_number(patient_whatsapp_number: str) -> Optional[Dict[str, Any]]:
     """
@@ -178,3 +179,395 @@ async def lookup_and_update_patient_info(message_id: str) -> bool:
             additional_info={"message_id": message_id}
         )
         raise
+
+async def get_patient_transcripts(session_ids: List[str]) -> List[Dict[str, Any]]:
+    """
+    Retrieve all transcripts for a patient's sessions.
+    
+    Args:
+        session_ids: List of session IDs for the patient
+        
+    Returns:
+        List of transcript data with metadata
+        
+    Raises:
+        ValueError: If no valid session IDs exist
+        Exception: If database query fails
+    """
+    try:
+        db = await get_db()
+        
+        # First, verify session IDs exist
+        sessions_collection = db["sessions"]
+        valid_sessions = await sessions_collection.count_documents(
+            {"session_id": {"$in": session_ids}}
+        )
+        
+        if valid_sessions == 0:
+            raise ValueError(f"No valid sessions found for session_ids: {session_ids}")
+        
+        # Get transcripts for valid sessions only
+        transcription_collection = db["transcription_sessions"]
+        transcripts_cursor = transcription_collection.find(
+            {
+                "session_id": {"$in": session_ids},
+                "status": "completed",
+                "transcript": {"$exists": True, "$ne": ""}
+            },
+            {
+                "_id": 0,
+                "session_id": 1,
+                "transcript": 1,
+                "started_at": 1,
+                "ended_at": 1
+            }
+        ).sort("started_at", 1)
+        
+        transcripts = await transcripts_cursor.to_list(length=None)
+        
+        return transcripts
+        
+    except ValueError:
+        # Re-raise validation errors as-is
+        raise
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - get_patient_transcripts",
+            additional_info={"session_ids": session_ids}
+        )
+        raise
+
+async def generate_rag_response(
+    patient_name: str,
+    patient_question: str,
+    transcripts: List[Dict[str, Any]]
+) -> str:
+    """
+    Generate RAG response using consultation history plus general medical knowledge.
+    
+    Args:
+        patient_name: Patient's name for personalization
+        patient_question: Patient's medical query
+        transcripts: List of consultation transcripts with metadata
+        
+    Returns:
+        str: Generated response for the patient
+        
+    Raises:
+        Exception: If LLM generation fails
+    """
+    try:
+        from app.core.llm import get_openai_client
+        
+        # Build consultation context if available
+        consultation_context: str = ""
+        if transcripts:
+            context_parts: List[str] = []
+            for i, transcript in enumerate(transcripts, 1):
+                consultation_date: str = transcript['started_at'].strftime('%Y-%m-%d')
+                context_parts.append(
+                    f"Consultation {i} ({consultation_date}):\n{transcript['transcript']}"
+                )
+            consultation_context = f"\n\nPatient's Previous Consultations:\n{'\n\n'.join(context_parts)}"
+        
+        # Build input prompt combining question and context
+        input_prompt: str = f"""Patient: {patient_name}
+Question: {patient_question}{consultation_context}
+
+You are a helpful medical AI assistant. Provide helpful medical information and guidance. Reference consultation history when relevant. Always recommend consulting a healthcare provider for serious concerns. Use simple, clear language and be empathetic."""
+        
+        # Generate response using new Responses API
+        openai_client = await get_openai_client()
+        
+        response = await openai_client.responses.create(
+            model="gpt-4.1-mini",
+            input=input_prompt,
+            temperature=0
+        )
+        
+        generated_response: str = response.output_text.strip()
+        
+        if not generated_response:
+            raise Exception("OpenAI returned empty response")
+        
+        return generated_response
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - generate_rag_response",
+            additional_info={
+                "patient_name": patient_name,
+                "question_length": len(patient_question) if patient_question else 0,
+                "transcript_count": len(transcripts) if transcripts else 0
+            }
+        )
+        raise
+
+async def store_ai_response(
+    message_id: str,
+    ai_response: str
+) -> None:
+    """
+    Store AI-generated response in the incoming message record.
+    
+    Args:
+        message_id: ID of the incoming message to update
+        ai_response: Generated AI response text
+        
+    Raises:
+        ValueError: If message not found
+        Exception: If database update fails
+    """
+    try:
+        db = await get_db()
+        incoming_messages_collection = db["incoming_whatsapp_messages"]
+        
+        # Update message with AI response
+        update_result = await incoming_messages_collection.update_one(
+            {"message_id": message_id},
+            {
+                "$set": {
+                    "ai_response": ai_response,
+                    "response_generated_at": datetime.now(timezone.utc),
+                    "status": "completed",
+                    "processed_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        if update_result.matched_count == 0:
+            raise ValueError(f"Message with ID {message_id} not found")
+        
+        if update_result.modified_count == 0:
+            raise Exception(f"Failed to update message {message_id} with AI response")
+        
+    except ValueError:
+        # Re-raise validation errors as-is
+        raise
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - store_ai_response",
+            additional_info={
+                "message_id": message_id,
+                "response_length": len(ai_response) if ai_response else 0
+            }
+        )
+        raise
+
+async def store_processing_error(
+    message_id: str,
+    error_message: str
+) -> None:
+    """
+    Store processing error in the incoming message record.
+    
+    Args:
+        message_id: ID of the incoming message to update
+        error_message: Error description for debugging
+        
+    Raises:
+        ValueError: If message not found
+        Exception: If database update fails
+    """
+    try:
+        db = await get_db()
+        incoming_messages_collection = db["incoming_whatsapp_messages"]
+        
+        # Update message with error details
+        update_result = await incoming_messages_collection.update_one(
+            {"message_id": message_id},
+            {
+                "$set": {
+                    "status": "failed",
+                    "error_message": error_message,
+                    "processed_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        if update_result.matched_count == 0:
+            raise ValueError(f"Message with ID {message_id} not found")
+        
+        if update_result.modified_count == 0:
+            raise Exception(f"Failed to update message {message_id} with error")
+        
+    except ValueError:
+        # Re-raise validation errors as-is
+        raise
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - store_processing_error",
+            additional_info={
+                "message_id": message_id,
+                "original_error": error_message
+            }
+        )
+        raise
+
+async def process_rag_pipeline(message_id: str) -> bool:
+    """
+    Process complete RAG pipeline for an incoming WhatsApp message.
+    
+    Args:
+        message_id: ID of the incoming message to process
+        
+    Returns:
+        bool: True if processing succeeded, False if failed
+        
+    Raises:
+        Exception: If critical database operations fail
+    """
+    try:
+        db = await get_db()
+        incoming_messages_collection = db["incoming_whatsapp_messages"]
+        
+        # 1. Get the incoming message details
+        message_doc = await incoming_messages_collection.find_one(
+            {"message_id": message_id},
+            {"_id": 0}
+        )
+        
+        if not message_doc:
+            raise Exception(f"Message {message_id} not found")
+        
+        patient_whatsapp_number = message_doc["patient_whatsapp_number"]
+        patient_question = message_doc["message_body"]
+        
+        # 2. Find patient information
+        patient_info = await find_patient_by_whatsapp_number(patient_whatsapp_number)
+        
+        if not patient_info:
+            # Patient not found - store and send friendly message
+            error_message = "I don't have any consultation records for your number. Please contact your doctor if you need medical assistance."
+            await store_processing_error(message_id, error_message)
+            await send_rag_response_to_patient(message_id)
+            return False
+        
+        # 3. Get patient transcripts
+        try:
+            transcripts = await get_patient_transcripts(patient_info["session_ids"])
+        except ValueError as e:
+            # Session validation failed - store and send error
+            error_message = f"Hello {patient_info['patient_name']}, I'm having trouble accessing your consultation records. Please contact your doctor for assistance."
+            await store_processing_error(message_id, error_message)
+            await send_rag_response_to_patient(message_id)
+            return False
+        
+        if not transcripts:
+            # No transcripts available - store and send message
+            error_message = f"Hello {patient_info['patient_name']}, I don't have any completed consultation transcripts for you yet. Please contact your doctor if you have medical questions."
+            await store_processing_error(message_id, error_message)
+            await send_rag_response_to_patient(message_id)
+            return False
+        
+        # 4. Generate AI response
+        try:
+            ai_response = await generate_rag_response(
+                patient_name=patient_info["patient_name"],
+                patient_question=patient_question,
+                transcripts=transcripts
+            )
+        except Exception as e:
+            # AI generation failed - store and send error
+            error_message = f"Hello {patient_info['patient_name']}, I'm experiencing technical difficulties right now. Please try again later or contact your doctor directly."
+            await store_processing_error(message_id, error_message)
+            await send_rag_response_to_patient(message_id)
+            return False
+        
+        # 5. Store and send successful response
+        await store_ai_response(message_id, ai_response)
+        await send_rag_response_to_patient(message_id)
+        return True
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - process_rag_pipeline",
+            additional_info={"message_id": message_id}
+        )
+        
+        # Try to store and send generic error if possible
+        try:
+            await store_processing_error(message_id, "Technical error occurred during processing")
+            await send_rag_response_to_patient(message_id)
+        except:
+            pass  # Don't fail if error handling fails
+        
+        raise
+
+async def send_rag_response_to_patient(message_id: str) -> bool:
+    """
+    Send stored AI response to patient via WhatsApp.
+    
+    Args:
+        message_id: ID of the processed message with stored AI response
+        
+    Returns:
+        bool: True if message was sent successfully, False otherwise
+        
+    Raises:
+        Exception: If database operations fail
+    """
+    try:
+        from app.notifications.services import get_whatsapp_service
+        
+        db = await get_db()
+        incoming_messages_collection = db["incoming_whatsapp_messages"]
+        
+        # Get the message with AI response
+        message_doc = await incoming_messages_collection.find_one(
+            {"message_id": message_id},
+            {"_id": 0}
+        )
+        
+        if not message_doc:
+            raise Exception(f"Message {message_id} not found")
+        
+        # Check if we have an AI response to send
+        ai_response = message_doc.get("ai_response")
+        if not ai_response:
+            # Check if we have an error message to send instead
+            error_message = message_doc.get("error_message")
+            if error_message:
+                ai_response = error_message
+            else:
+                raise Exception(f"No response or error message found for message {message_id}")
+        
+        patient_whatsapp_number = message_doc["patient_whatsapp_number"]
+        
+        # Send WhatsApp message
+        whatsapp_service = await get_whatsapp_service()
+        
+        # Use Twilio's message sending directly (simpler than notification service)
+        from twilio.rest import Client
+        from app.core.config import settings
+        
+        # Create normalized WhatsApp number
+        normalized_number = patient_whatsapp_number
+        if not normalized_number.startswith("+"):
+            normalized_number = f"+{normalized_number}"
+        
+        # Send via Twilio
+        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        
+        message = await asyncio.to_thread(
+            client.messages.create,
+            from_=settings.TWILIO_WHATSAPP_FROM,
+            body=ai_response,
+            to=f"whatsapp:{normalized_number}"
+        )
+        
+        print(f"Sent RAG response to {patient_whatsapp_number}, Twilio SID: {message.sid}")
+        return True
+        
+    except Exception as e:
+        await log_error(
+            error=e,
+            location="rag/utils.py - send_rag_response_to_patient",
+            additional_info={"message_id": message_id}
+        )
+        return False

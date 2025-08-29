@@ -37,5 +37,9 @@ class IncomingWhatsAppMessage(BaseModel):
     session_ids: Optional[List[str]] = None
     total_sessions: Optional[int] = None
     
+    # AI response data (NEW)
+    ai_response: Optional[str] = Field(default=None, description="Generated AI response text")
+    response_generated_at: Optional[datetime] = Field(default=None, description="When AI response was generated")
+    
     # Error handling
     error_message: Optional[str] = None
